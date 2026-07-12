@@ -88,7 +88,8 @@ def log_chapter_done(project_name: str, chapter_number: str, user: discord.User,
     else:
         new_tl = 1 if role == "TL" else 0
         new_ed = 1 if role == "ED" else 0
-        members_sheet.append_row([user_id_str, str(user), new_tl, new_ed, amount])
+        # ملحوظة: الصف بقى فيه 10 أعمدة بدل 5 عشان نظام البروفايل الجديد
+        members_sheet.append_row([user_id_str, str(user), new_tl, new_ed, amount, "", "", "", "", ""])
 
     return amount
 
@@ -100,6 +101,142 @@ def get_member_profile(user: discord.User):
     if existing_row:
         return existing_row
     return None
+
+
+# ---------------- دوال نظام البروفايل الجديد (Payment / Email / Country / Age / Gender) ----------------
+
+def update_member_field(user: discord.User, field_name: str, value: str):
+    """
+    بتحدث حقل واحد بس (زي Payment أو Email) في صف العضو.
+    لو العضو مش موجود في الشيت، بتضيفله صف جديد.
+
+    ترتيب الأعمدة المتوقع في شيت Members:
+    A: Discord ID | B: Discord Name | C: TL Chapters | D: ED Chapters
+    E: Unpaid Balance | F: Payment | G: Email | H: Country | I: Age | J: Gender
+    """
+    client = get_sheet_client()
+    members_sheet = client.open_by_key(SHEET_ID).worksheet("Members")
+    user_id_str = str(user.id)
+    row_index, existing_row = find_member_row(members_sheet, user_id_str)
+
+    column_map = {
+        "Payment": "F",
+        "Email": "G",
+        "Country": "H",
+        "Age": "I",
+        "Gender": "J",
+    }
+    col_letter = column_map[field_name]
+
+    if row_index:
+        members_sheet.update(f"{col_letter}{row_index}", [[value]])
+    else:
+        new_row = [user_id_str, str(user), 0, 0, 0, "", "", "", "", ""]
+        field_order = ["Discord ID", "Discord Name", "TL Chapters", "ED Chapters",
+                        "Unpaid Balance", "Payment", "Email", "Country", "Age", "Gender"]
+        idx = field_order.index(field_name)
+        new_row[idx] = value
+        members_sheet.append_row(new_row)
+
+
+def is_gender_locked(user: discord.User) -> bool:
+    """بترجع True لو العضو حدد الـ Gender قبل كده (يعني مقفول)."""
+    data = get_member_profile(user)
+    if data and str(data.get("Gender", "")).strip():
+        return True
+    return False
+
+
+class ProfileFieldModal(discord.ui.Modal):
+    def __init__(self, field_name: str, label: str, placeholder: str = ""):
+        super().__init__(title=f"تعديل {label}")
+        self.field_name = field_name
+        self.value_input = discord.ui.TextInput(
+            label=label,
+            placeholder=placeholder,
+            required=True,
+            max_length=100
+        )
+        self.add_item(self.value_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            update_member_field(interaction.user, self.field_name, self.value_input.value)
+        except Exception as e:
+            await interaction.followup.send(f"❌ حصل خطأ أثناء الحفظ: {e}", ephemeral=True)
+            return
+        await interaction.followup.send(f"✅ تم تحديث {self.field_name} بنجاح", ephemeral=True)
+
+
+class GenderSelectView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=60)
+
+    @discord.ui.select(
+        placeholder="اختار الـ Gender",
+        options=[
+            discord.SelectOption(label="Male", emoji="♂️"),
+            discord.SelectOption(label="Female", emoji="♀️"),
+        ]
+    )
+    async def select_gender(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            update_member_field(interaction.user, "Gender", select.values[0])
+        except Exception as e:
+            await interaction.followup.send(f"❌ حصل خطأ أثناء الحفظ: {e}", ephemeral=True)
+            return
+        await interaction.followup.send(
+            f"✅ تم تسجيل الـ Gender: {select.values[0]}\n"
+            f"🔒 الحقل ده اتقفل دلوقتي، لو عايز تغيره لازم تتواصل مع أدمن.",
+            ephemeral=True
+        )
+
+
+class ProfileButtonsView(discord.ui.View):
+    def __init__(self, profile_owner_id: int):
+        super().__init__(timeout=None)
+        self.profile_owner_id = profile_owner_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.profile_owner_id:
+            await interaction.response.send_message(
+                "❌ الزرار ده مخصص بس لصاحب البروفايل.", ephemeral=True
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="Payment", style=discord.ButtonStyle.primary, emoji="💳")
+    async def edit_payment(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = ProfileFieldModal("Payment", "طريقة الدفع", "مثال: Vodafone Cash / InstaPay")
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="Email", style=discord.ButtonStyle.secondary, emoji="📧")
+    async def edit_email(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = ProfileFieldModal("Email", "الإيميل", "example@gmail.com")
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="Country", style=discord.ButtonStyle.secondary, emoji="🌍")
+    async def edit_country(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = ProfileFieldModal("Country", "الدولة", "مثال: Egypt")
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="Age", style=discord.ButtonStyle.secondary, emoji="🎂")
+    async def edit_age(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = ProfileFieldModal("Age", "السن", "مثال: 19")
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="Gender", style=discord.ButtonStyle.success, emoji="⚧")
+    async def edit_gender(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if is_gender_locked(interaction.user):
+            await interaction.response.send_message(
+                "🔒 الحقل ده مقفول بالفعل، لازم تتواصل مع أدمن عشان يغيره.",
+                ephemeral=True
+            )
+            return
+        view = GenderSelectView()
+        await interaction.response.send_message("اختار الـ Gender بتاعك:", view=view, ephemeral=True)
 
 
 # ---------------- الجزء بتاع /project ----------------
@@ -424,20 +561,40 @@ async def done(interaction: discord.Interaction, role_type: app_commands.Choice[
     await interaction.response.send_modal(modal)
 
 
+# ---------------- أمر /profile (النسخة الجديدة بالأزرار) ----------------
+
 @bot.tree.command(name="profile", description="عرض بروفايلك")
 async def profile(interaction: discord.Interaction):
     await interaction.response.defer()
     data = get_member_profile(interaction.user)
-    if not data:
-        await interaction.followup.send("لسه معندكش أي فصل مسجل في النظام.")
-        return
 
     embed = discord.Embed(title=f"👤 {interaction.user.display_name}'s Profile", color=discord.Color.blurple())
     embed.set_thumbnail(url=interaction.user.display_avatar.url)
-    embed.add_field(name="💰 Unpaid Balance", value=f"${float(data['Unpaid Balance']):.2f}", inline=True)
-    embed.add_field(name="✅ TL Chapters", value=str(data['TL Chapters']), inline=True)
-    embed.add_field(name="✅ ED Chapters", value=str(data['ED Chapters']), inline=True)
-    await interaction.followup.send(embed=embed)
+
+    if data:
+        embed.add_field(name="💰 Unpaid Balance", value=f"${float(data.get('Unpaid Balance', 0) or 0):.2f}", inline=True)
+        embed.add_field(name="✅ TL Chapters", value=str(data.get('TL Chapters', 0)), inline=True)
+        embed.add_field(name="✅ ED Chapters", value=str(data.get('ED Chapters', 0)), inline=True)
+        embed.add_field(name="💳 Payment", value=data.get("Payment") or "— Not set —", inline=True)
+        embed.add_field(name="📧 Email", value=data.get("Email") or "— Not set —", inline=True)
+        embed.add_field(name="🌍 Country", value=data.get("Country") or "— Not set —", inline=True)
+        embed.add_field(name="🎂 Age", value=data.get("Age") or "— Not set —", inline=True)
+        gender_value = data.get("Gender") or "— Not set —"
+        if data.get("Gender"):
+            gender_value += " 🔒"
+        embed.add_field(name="⚧ Gender", value=gender_value, inline=True)
+    else:
+        embed.add_field(name="💰 Unpaid Balance", value="$0.00", inline=True)
+        embed.add_field(name="✅ TL Chapters", value="0", inline=True)
+        embed.add_field(name="✅ ED Chapters", value="0", inline=True)
+        embed.add_field(name="💳 Payment", value="— Not set —", inline=True)
+        embed.add_field(name="📧 Email", value="— Not set —", inline=True)
+        embed.add_field(name="🌍 Country", value="— Not set —", inline=True)
+        embed.add_field(name="🎂 Age", value="— Not set —", inline=True)
+        embed.add_field(name="⚧ Gender", value="— Not set —", inline=True)
+
+    view = ProfileButtonsView(interaction.user.id)
+    await interaction.followup.send(embed=embed, view=view)
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
