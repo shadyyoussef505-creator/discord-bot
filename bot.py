@@ -266,7 +266,67 @@ class AddChapterModal(discord.ui.Modal, title="تفاصيل الفصل"):
 async def add_chapter(interaction: discord.Interaction, project_name: str, chapter_number: str, mention: discord.Role = None):
     modal = AddChapterModal(project_name, chapter_number, mention)
     await interaction.response.send_modal(modal)
+# ---------------- ضع الـ Role IDs هنا ----------------
+EDITOR_ROLE_ID = 123456789012345678   # حط هنا الـ ID بتاع رتبة المحررين
+ADMIN_ROLE_ID = 123456789012345678    # حط هنا الـ ID بتاع رتبة الأدمنز
 
+
+class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
+    link_input = discord.ui.TextInput(
+        label="الرابط (اختياري)", placeholder="https://drive.google.com/...", required=False
+    )
+
+    def __init__(self, role_type: str, chapter_number: str, project_name: str):
+        super().__init__()
+        self.role_type = role_type
+        self.chapter_number = chapter_number
+        self.project_name = project_name
+
+    async def on_submit(self, interaction: discord.Interaction):
+        link_value = fix_url(self.link_input.value) if self.link_input.value else None
+        link_display = link_value if link_value else "— No link provided —"
+
+        if self.role_type == "TL":
+            embed = discord.Embed(
+                title="✅ Translation Done!",
+                description=f"**{self.project_name}** • Chapter {self.chapter_number}",
+                color=discord.Color.blue()
+            )
+            embed.add_field(name="🎙️ Translator", value=interaction.user.mention, inline=True)
+            embed.add_field(name="🔗 Link", value=link_display, inline=False)
+            embed.set_footer(text="Ready for editing")
+
+            editor_role = interaction.guild.get_role(EDITOR_ROLE_ID)
+            mention_text = editor_role.mention if editor_role else "@Editors"
+            await interaction.response.send_message(content=mention_text, embed=embed)
+
+        else:  # ED
+            embed = discord.Embed(
+                title="📢 Editing Done — Ready for Release!",
+                description=f"**{self.project_name}** • Chapter {self.chapter_number}",
+                color=discord.Color.purple()
+            )
+            embed.add_field(name="✏️ Editor", value=interaction.user.mention, inline=True)
+            embed.add_field(name="🔗 Final Link", value=link_display, inline=False)
+
+            admin_role = interaction.guild.get_role(ADMIN_ROLE_ID)
+            mention_text = admin_role.mention if admin_role else "@Admins"
+            await interaction.response.send_message(content=mention_text, embed=embed)
+
+
+@bot.tree.command(name="done", description="إعلان إنجاز الترجمة أو التعديل")
+@app_commands.describe(
+    role_type="هل انت المترجم ولا المحرر؟",
+    chapter_number="رقم الفصل",
+    project_name="اسم المشروع"
+)
+@app_commands.choices(role_type=[
+    app_commands.Choice(name="TL - مترجم", value="TL"),
+    app_commands.Choice(name="ED - محرر", value="ED"),
+])
+async def done(interaction: discord.Interaction, role_type: app_commands.Choice[str], chapter_number: str, project_name: str):
+    modal = DoneModal(role_type.value, chapter_number, project_name)
+    await interaction.response.send_modal(modal)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 bot.run(TOKEN)
