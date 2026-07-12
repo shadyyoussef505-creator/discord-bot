@@ -4,6 +4,7 @@ from discord import app_commands
 import os
 import json
 import gspread
+import traceback
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 
@@ -179,6 +180,7 @@ class ProfileFieldModal(discord.ui.Modal):
         try:
             update_member_field(interaction.user, self.field_name, self.value_input.value)
         except Exception as e:
+            print(traceback.format_exc())
             await interaction.followup.send(f"❌ حصل خطأ أثناء الحفظ: {e}", ephemeral=True)
             return
         await interaction.followup.send(f"✅ تم تحديث {self.field_name} بنجاح", ephemeral=True)
@@ -200,6 +202,7 @@ class GenderSelectView(discord.ui.View):
         try:
             update_member_field(interaction.user, "Gender", select.values[0])
         except Exception as e:
+            print(traceback.format_exc())
             await interaction.followup.send(f"❌ حصل خطأ أثناء الحفظ: {e}", ephemeral=True)
             return
         await interaction.followup.send(
@@ -321,6 +324,7 @@ class PricingEditModal(discord.ui.Modal, title="تعديل السعر"):
         try:
             upsert_project_pricing(self.project_name, tl_price, ed_price)
         except Exception as e:
+            print(traceback.format_exc())
             await interaction.followup.send(f"❌ حصل خطأ أثناء تحديث الشيت: {e}", ephemeral=True)
             return
 
@@ -521,6 +525,7 @@ class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
         try:
             amount = log_chapter_done(self.project_name, self.chapter_number, interaction.user, self.role_type)
         except Exception as e:
+            print(traceback.format_exc())
             await interaction.followup.send(f"❌ حصل خطأ أثناء التسجيل في الشيت: {e}")
             return
 
@@ -561,6 +566,7 @@ async def on_ready():
         synced = await bot.tree.sync()
         print(f"تم مزامنة {len(synced)} أمر")
     except Exception as e:
+        print(traceback.format_exc())
         print(e)
 
 
@@ -580,6 +586,9 @@ async def project(interaction: discord.Interaction, name: str, tl_price: float, 
     try:
         upsert_project_pricing(name, tl_price, ed_price)
     except Exception as e:
+        print("========== خطأ في /project ==========")
+        print(traceback.format_exc())
+        print("=======================================")
         await interaction.followup.send(f"❌ حصل خطأ أثناء تسجيل المشروع في الشيت: {e}")
         return
 
