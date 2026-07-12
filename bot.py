@@ -2,12 +2,18 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 import os
+import json
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+from datetime import datetime
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+SHEET_ID = "1QG4besel9w7nFkwceD21SpwCpFRbXyQHB6GCRyCstDQ"
 
 
 def fix_url(url: str) -> str:
@@ -18,7 +24,85 @@ def fix_url(url: str) -> str:
     return url
 
 
-# ---------------- الجزء القديم بتاع /project ----------------
+# ---------------- ربط جوجل شيت ----------------
+
+def get_sheet_client():
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds_json = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, scope)
+    client = gspread.authorize(creds)
+    return client
+
+
+def get_project_prices(project_name: str):
+    client = get_sheet_client()
+    sheet = client.open_by_key(SHEET_ID).worksheet("Projects")
+    records = sheet.get_all_records()
+    for row in records:
+        if str(row["Project Name"]).strip() == project_name.strip():
+            return float(row["TL Price"]), float(row["ED Price"])
+    return 0.0, 0.0
+
+
+def find_member_row(members_sheet, user_id: str):
+    records = members_sheet.get_all_records()
+    for i, row in enumerate(records):
+        if str(row["Discord ID"]).strip() == user_id:
+            return i + 2, row
+    return None, None
+
+
+def log_chapter_done(project_name: str, chapter_number: str, user: discord.User, role: str):
+    client = get_sheet_client()
+    spreadsheet = client.open_by_key(SHEET_ID)
+
+    tl_price, ed_price = get_project_prices(project_name)
+    amount = tl_price if role == "TL" else ed_price
+
+    log_sheet = spreadsheet.worksheet("Log")
+    log_sheet.append_row([
+        datetime.now().strftime("%Y-%m-%d %H:%M"),
+        project_name,
+        chapter_number,
+        str(user),
+        role,
+        amount
+    ])
+
+    members_sheet = spreadsheet.worksheet("Members")
+    user_id_str = str(user.id)
+    row_index, existing_row = find_member_row(members_sheet, user_id_str)
+
+    if row_index:
+        current_tl = int(existing_row.get("TL Chapters", 0) or 0)
+        current_ed = int(existing_row.get("ED Chapters", 0) or 0)
+        current_balance = float(existing_row.get("Unpaid Balance", 0) or 0)
+
+        if role == "TL":
+            current_tl += 1
+        else:
+            current_ed += 1
+        current_balance += amount
+
+        members_sheet.update(f"C{row_index}:E{row_index}", [[current_tl, current_ed, current_balance]])
+    else:
+        new_tl = 1 if role == "TL" else 0
+        new_ed = 1 if role == "ED" else 0
+        members_sheet.append_row([user_id_str, str(user), new_tl, new_ed, amount])
+
+    return amount
+
+
+def get_member_profile(user: discord.User):
+    client = get_sheet_client()
+    members_sheet = client.open_by_key(SHEET_ID).worksheet("Members")
+    row_index, existing_row = find_member_row(members_sheet, str(user.id))
+    if existing_row:
+        return existing_row
+    return None
+
+
+# ---------------- الجزء بتاع /project ----------------
 
 class TextEditModal(discord.ui.Modal):
     def __init__(self, field_name: str, embed: discord.Embed, message: discord.Message, placeholder: str = ""):
@@ -143,42 +227,7 @@ class ProjectView(discord.ui.View):
         await interaction.response.send_modal(LinkEditModal("Raw", self))
 
 
-@bot.event
-async def on_ready():
-    print(f"البوت شغال باسم: {bot.user}")
-    try:
-        synced = await bot.tree.sync()
-        print(f"تم مزامنة {len(synced)} أمر")
-    except Exception as e:
-        print(e)
-
-
-@bot.tree.command(name="project", description="عرض بطاقة مشروع")
-@app_commands.describe(
-    name="اسم المشروع",
-    drive_folder="رابط مجلد الدرايف",
-    drive_sort="رابط الـ Sort",
-    drive_raw="رابط الـ Raw"
-)
-async def project(interaction: discord.Interaction, name: str, drive_folder: str, drive_sort: str, drive_raw: str):
-    embed = discord.Embed(title=f"📖 {name}", color=discord.Color.green())
-    embed.add_field(name="الحالة", value="🟢 Active", inline=False)
-    embed.add_field(name="TL", value="غير محدد", inline=True)
-    embed.add_field(name="ED", value="غير محدد", inline=True)
-    embed.add_field(name="PR", value="skipped", inline=True)
-    embed.add_field(name="السعر", value="TL: $0.50 | ED: $0.50 | PR: skipped", inline=False)
-    embed.add_field(name="التفاصيل", value="Latest: No chapters yet | Release: Not scheduled", inline=False)
-
-    links = {
-        "Folder": fix_url(drive_folder) or "https://drive.google.com",
-        "Sort": fix_url(drive_sort) or "https://drive.google.com",
-        "Raw": fix_url(drive_raw) or "https://drive.google.com"
-    }
-    view = ProjectView(embed, links)
-    await interaction.response.send_message(embed=embed, view=view)
-
-
-# ---------------- الجزء الجديد بتاع /add_chapter ----------------
+# ---------------- الجزء بتاع /add_chapter ----------------
 
 class ChapterView(discord.ui.View):
     def __init__(self, embed: discord.Embed):
@@ -257,18 +306,9 @@ class AddChapterModal(discord.ui.Modal, title="تفاصيل الفصل"):
             )
 
 
-@bot.tree.command(name="add_chapter", description="نشر فصل جديد")
-@app_commands.describe(
-    project_name="اسم المشروع",
-    chapter_number="رقم الفصل",
-    mention="الرتبة اللي هتتعمله منشن (اختياري)"
-)
-async def add_chapter(interaction: discord.Interaction, project_name: str, chapter_number: str, mention: discord.Role = None):
-    modal = AddChapterModal(project_name, chapter_number, mention)
-    await interaction.response.send_modal(modal)
-# ---------------- ضع الـ Role IDs هنا ----------------
-EDITOR_ROLE_ID = 123456789012345678   # حط هنا الـ ID بتاع رتبة المحررين
-ADMIN_ROLE_ID = 123456789012345678    # حط هنا الـ ID بتاع رتبة الأدمنز
+# ---------------- Role IDs بتاعت /done ----------------
+EDITOR_ROLE_ID = 123456789012345678
+ADMIN_ROLE_ID = 123456789012345678
 
 
 class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
@@ -276,15 +316,22 @@ class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
         label="الرابط (اختياري)", placeholder="https://drive.google.com/...", required=False
     )
 
-    def __init__(self, role_type: str, chapter_number: str, project_name: str):
+    def __init__(self, role_type: str, project_name: str, chapter_number: str):
         super().__init__()
         self.role_type = role_type
-        self.chapter_number = chapter_number
         self.project_name = project_name
+        self.chapter_number = chapter_number
 
     async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer()
         link_value = fix_url(self.link_input.value) if self.link_input.value else None
         link_display = link_value if link_value else "— No link provided —"
+
+        try:
+            amount = log_chapter_done(self.project_name, self.chapter_number, interaction.user, self.role_type)
+        except Exception as e:
+            await interaction.followup.send(f"❌ حصل خطأ أثناء التسجيل في الشيت: {e}")
+            return
 
         if self.role_type == "TL":
             embed = discord.Embed(
@@ -294,13 +341,14 @@ class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
             )
             embed.add_field(name="🎙️ Translator", value=interaction.user.mention, inline=True)
             embed.add_field(name="🔗 Link", value=link_display, inline=False)
+            embed.add_field(name="💰 Amount", value=f"${amount:.2f}", inline=True)
             embed.set_footer(text="Ready for editing")
 
             editor_role = interaction.guild.get_role(EDITOR_ROLE_ID)
             mention_text = editor_role.mention if editor_role else "@Editors"
-            await interaction.response.send_message(content=mention_text, embed=embed)
+            await interaction.followup.send(content=mention_text, embed=embed)
 
-        else:  # ED
+        else:
             embed = discord.Embed(
                 title="📢 Editing Done — Ready for Release!",
                 description=f"**{self.project_name}** • Chapter {self.chapter_number}",
@@ -308,25 +356,89 @@ class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
             )
             embed.add_field(name="✏️ Editor", value=interaction.user.mention, inline=True)
             embed.add_field(name="🔗 Final Link", value=link_display, inline=False)
+            embed.add_field(name="💰 Amount", value=f"${amount:.2f}", inline=True)
 
             admin_role = interaction.guild.get_role(ADMIN_ROLE_ID)
             mention_text = admin_role.mention if admin_role else "@Admins"
-            await interaction.response.send_message(content=mention_text, embed=embed)
+            await interaction.followup.send(content=mention_text, embed=embed)
 
 
-@bot.tree.command(name="done", description="إعلان إنجاز الترجمة أو التعديل")
+@bot.event
+async def on_ready():
+    print(f"البوت شغال باسم: {bot.user}")
+    try:
+        synced = await bot.tree.sync()
+        print(f"تم مزامنة {len(synced)} أمر")
+    except Exception as e:
+        print(e)
+
+
+@bot.tree.command(name="project", description="عرض بطاقة مشروع")
+@app_commands.describe(
+    name="اسم المشروع",
+    drive_folder="رابط مجلد الدرايف",
+    drive_sort="رابط الـ Sort",
+    drive_raw="رابط الـ Raw"
+)
+async def project(interaction: discord.Interaction, name: str, drive_folder: str, drive_sort: str, drive_raw: str):
+    embed = discord.Embed(title=f"📖 {name}", color=discord.Color.green())
+    embed.add_field(name="الحالة", value="🟢 Active", inline=False)
+    embed.add_field(name="TL", value="غير محدد", inline=True)
+    embed.add_field(name="ED", value="غير محدد", inline=True)
+    embed.add_field(name="PR", value="skipped", inline=True)
+    embed.add_field(name="السعر", value="TL: $0.50 | ED: $0.50 | PR: skipped", inline=False)
+    embed.add_field(name="التفاصيل", value="Latest: No chapters yet | Release: Not scheduled", inline=False)
+
+    links = {
+        "Folder": fix_url(drive_folder) or "https://drive.google.com",
+        "Sort": fix_url(drive_sort) or "https://drive.google.com",
+        "Raw": fix_url(drive_raw) or "https://drive.google.com"
+    }
+    view = ProjectView(embed, links)
+    await interaction.response.send_message(embed=embed, view=view)
+
+
+@bot.tree.command(name="add_chapter", description="نشر فصل جديد")
+@app_commands.describe(
+    project_name="اسم المشروع",
+    chapter_number="رقم الفصل",
+    mention="الرتبة اللي هتتعمله منشن (اختياري)"
+)
+async def add_chapter(interaction: discord.Interaction, project_name: str, chapter_number: str, mention: discord.Role = None):
+    modal = AddChapterModal(project_name, chapter_number, mention)
+    await interaction.response.send_modal(modal)
+
+
+@bot.tree.command(name="done", description="إعلان إنجاز الترجمة أو التعديل وتسجيله في الشيت")
 @app_commands.describe(
     role_type="هل انت المترجم ولا المحرر؟",
-    chapter_number="رقم الفصل",
-    project_name="اسم المشروع"
+    project_name="اسم المشروع (لازم يكون مطابق للاسم في شيت Projects)",
+    chapter_number="رقم الفصل"
 )
 @app_commands.choices(role_type=[
     app_commands.Choice(name="TL - مترجم", value="TL"),
     app_commands.Choice(name="ED - محرر", value="ED"),
 ])
-async def done(interaction: discord.Interaction, role_type: app_commands.Choice[str], chapter_number: str, project_name: str):
-    modal = DoneModal(role_type.value, chapter_number, project_name)
+async def done(interaction: discord.Interaction, role_type: app_commands.Choice[str], project_name: str, chapter_number: str):
+    modal = DoneModal(role_type.value, project_name, chapter_number)
     await interaction.response.send_modal(modal)
+
+
+@bot.tree.command(name="profile", description="عرض بروفايلك")
+async def profile(interaction: discord.Interaction):
+    await interaction.response.defer()
+    data = get_member_profile(interaction.user)
+    if not data:
+        await interaction.followup.send("لسه معندكش أي فصل مسجل في النظام.")
+        return
+
+    embed = discord.Embed(title=f"👤 {interaction.user.display_name}'s Profile", color=discord.Color.blurple())
+    embed.set_thumbnail(url=interaction.user.display_avatar.url)
+    embed.add_field(name="💰 Unpaid Balance", value=f"${float(data['Unpaid Balance']):.2f}", inline=True)
+    embed.add_field(name="✅ TL Chapters", value=str(data['TL Chapters']), inline=True)
+    embed.add_field(name="✅ ED Chapters", value=str(data['ED Chapters']), inline=True)
+    await interaction.followup.send(embed=embed)
+
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 bot.run(TOKEN)
