@@ -18,7 +18,7 @@ def fix_url(url: str) -> str:
     return url
 
 
-# ---------------- الجزء القديم بتاع /project (زي ما هو) ----------------
+# ---------------- الجزء القديم بتاع /project ----------------
 
 class TextEditModal(discord.ui.Modal):
     def __init__(self, field_name: str, embed: discord.Embed, message: discord.Message, placeholder: str = ""):
@@ -222,49 +222,6 @@ class AddChapterModal(discord.ui.Modal, title="تفاصيل الفصل"):
         label="ملاحظة (اختياري)", placeholder="أي ملاحظة إضافية", required=False, style=discord.TextStyle.paragraph
     )
 
-    def __init__(self, project_name: str, chapter_number: str):
-        super().__init__()
-        self.project_name = project_name
-        self.chapter_number = chapter_number
-
-    async def on_submit(self, interaction: discord.Interaction):
-        link_value = fix_url(self.link_input.value) if self.link_input.value else None
-        link_display = link_value if link_value else "— Not set —"
-        deadline_display = self.deadline_input.value if self.deadline_input.value else "— Not set —"
-        status_display = self.status_input.value if self.status_input.value else "Waiting for claims"
-        note_display = self.note_input.value if self.note_input.value else "—"
-
-        embed = discord.Embed(
-            title="🔔 New Chapter Released!",
-            description=f"**{self.project_name}** • Chapter {self.chapter_number}",
-            color=discord.Color.gold()
-        )
-        embed.add_field(name="🌐 Link", value=link_display, inline=True)
-        embed.add_field(name="⏰ Deadline", value=deadline_display, inline=True)
-        embed.add_field(name="⚡ Status", value=status_display, inline=True)
-        embed.add_field(name="🎙️ Translator", value="— Not claimed —", inline=True)
-        embed.add_field(name="✏️ Editor", value="— Not claimed —", inline=True)
-        embed.add_field(name="📝 Note", value=note_display, inline=True)
-        embed.set_footer(text=f"{self.project_name} • Chapter Panel")
-
-        view = ChapterView(embed)
-        await interaction.response.send_message(embed=embed, view=view)
-
-
-class AddChapterModal(discord.ui.Modal, title="تفاصيل الفصل"):
-    link_input = discord.ui.TextInput(
-        label="الرابط (اختياري)", placeholder="https://drive.google.com/...", required=False
-    )
-    deadline_input = discord.ui.TextInput(
-        label="الديدلاين (اختياري)", placeholder="مثال: 15 يوليو", required=False
-    )
-    status_input = discord.ui.TextInput(
-        label="الحالة", placeholder="مثال: Waiting for claims", required=False
-    )
-    note_input = discord.ui.TextInput(
-        label="ملاحظة (اختياري)", placeholder="أي ملاحظة إضافية", required=False, style=discord.TextStyle.paragraph
-    )
-
     def __init__(self, project_name: str, chapter_number: str, mention: discord.Role = None):
         super().__init__()
         self.project_name = project_name
@@ -298,3 +255,18 @@ class AddChapterModal(discord.ui.Modal, title="تفاصيل الفصل"):
             await interaction.channel.send(
                 f"{self.mention.mention} 📢 Chapter {self.chapter_number} of **{self.project_name}** is here! Claim your slot above 👆"
             )
+
+
+@bot.tree.command(name="add_chapter", description="نشر فصل جديد")
+@app_commands.describe(
+    project_name="اسم المشروع",
+    chapter_number="رقم الفصل",
+    mention="الرتبة اللي هتتعمله منشن (اختياري)"
+)
+async def add_chapter(interaction: discord.Interaction, project_name: str, chapter_number: str, mention: discord.Role = None):
+    modal = AddChapterModal(project_name, chapter_number, mention)
+    await interaction.response.send_modal(modal)
+
+
+TOKEN = os.getenv("DISCORD_TOKEN")
+bot.run(TOKEN)
