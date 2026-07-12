@@ -44,6 +44,21 @@ def get_project_prices(project_name: str):
     return 0.0, 0.0
 
 
+def upsert_project_pricing(project_name: str, tl_price: float, ed_price: float):
+    """
+    بتضيف المشروع لو مش موجود في شيت Projects، أو بتحدث سعره لو موجود بالفعل.
+    """
+    client = get_sheet_client()
+    sheet = client.open_by_key(SHEET_ID).worksheet("Projects")
+    records = sheet.get_all_records()
+    for i, row in enumerate(records):
+        if str(row["Project Name"]).strip() == project_name.strip():
+            row_index = i + 2
+            sheet.update(f"B{row_index}:C{row_index}", [[tl_price, ed_price]])
+            return
+    sheet.append_row([project_name, tl_price, ed_price])
+
+
 def find_member_row(members_sheet, user_id: str):
     records = members_sheet.get_all_records()
     for i, row in enumerate(records):
@@ -284,6 +299,43 @@ class LinkEditModal(discord.ui.Modal):
         await interaction.response.send_message(f"تم تحديث رابط {self.link_name} ✅", ephemeral=True)
 
 
+class PricingEditModal(discord.ui.Modal, title="تعديل السعر"):
+    tl_price_input = discord.ui.TextInput(label="سعر المترجم TL", placeholder="مثال: 0.5", required=True)
+    ed_price_input = discord.ui.TextInput(label="سعر المحرر ED", placeholder="مثال: 0.5", required=True)
+
+    def __init__(self, project_name: str, embed: discord.Embed, message: discord.Message):
+        super().__init__()
+        self.project_name = project_name
+        self.embed = embed
+        self.message = message
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            tl_price = float(self.tl_price_input.value)
+            ed_price = float(self.ed_price_input.value)
+        except ValueError:
+            await interaction.response.send_message("❌ لازم تكتب أرقام صحيحة للسعر (مثال: 0.5)", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        try:
+            upsert_project_pricing(self.project_name, tl_price, ed_price)
+        except Exception as e:
+            await interaction.followup.send(f"❌ حصل خطأ أثناء تحديث الشيت: {e}", ephemeral=True)
+            return
+
+        for i, field in enumerate(self.embed.fields):
+            if field.name == "السعر":
+                self.embed.set_field_at(
+                    i, name="السعر",
+                    value=f"TL: ${tl_price:.2f} | ED: ${ed_price:.2f} | PR: skipped",
+                    inline=field.inline
+                )
+                break
+        await self.message.edit(embed=self.embed)
+        await interaction.followup.send("✅ تم تحديث السعر في البطاقة والشيت معًا", ephemeral=True)
+
+
 class UserSelectView(discord.ui.View):
     def __init__(self, field_name: str, embed: discord.Embed, message: discord.Message):
         super().__init__(timeout=60)
@@ -338,7 +390,9 @@ class ProjectView(discord.ui.View):
 
     @discord.ui.button(label="Edit Pricing", style=discord.ButtonStyle.secondary, row=1)
     async def edit_pricing(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = TextEditModal("السعر", self.embed, interaction.message, placeholder="مثال: TL: $0.50 | ED: $0.50")
+        # اسم المشروع بناخده من عنوان الـ embed (📖 اسم المشروع)
+        project_name = self.embed.title.replace("📖", "").strip()
+        modal = PricingEditModal(project_name, self.embed, interaction.message)
         await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="Edit Status", style=discord.ButtonStyle.secondary, row=1)
@@ -460,7 +514,7 @@ class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
         self.chapter_number = chapter_number
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
         link_value = fix_url(self.link_input.value) if self.link_input.value else None
         link_display = link_value if link_value else "— No link provided —"
 
@@ -513,17 +567,28 @@ async def on_ready():
 @bot.tree.command(name="project", description="عرض بطاقة مشروع")
 @app_commands.describe(
     name="اسم المشروع",
+    tl_price="سعر الفصل للمترجم (مثال: 0.5)",
+    ed_price="سعر الفصل للمحرر (مثال: 0.5)",
     drive_folder="رابط مجلد الدرايف",
     drive_sort="رابط الـ Sort",
     drive_raw="رابط الـ Raw"
 )
-async def project(interaction: discord.Interaction, name: str, drive_folder: str, drive_sort: str, drive_raw: str):
+async def project(interaction: discord.Interaction, name: str, tl_price: float, ed_price: float,
+                   drive_folder: str, drive_sort: str, drive_raw: str):
+    await interaction.response.defer()
+
+    try:
+        upsert_project_pricing(name, tl_price, ed_price)
+    except Exception as e:
+        await interaction.followup.send(f"❌ حصل خطأ أثناء تسجيل المشروع في الشيت: {e}")
+        return
+
     embed = discord.Embed(title=f"📖 {name}", color=discord.Color.green())
     embed.add_field(name="الحالة", value="🟢 Active", inline=False)
     embed.add_field(name="TL", value="غير محدد", inline=True)
     embed.add_field(name="ED", value="غير محدد", inline=True)
     embed.add_field(name="PR", value="skipped", inline=True)
-    embed.add_field(name="السعر", value="TL: $0.50 | ED: $0.50 | PR: skipped", inline=False)
+    embed.add_field(name="السعر", value=f"TL: ${tl_price:.2f} | ED: ${ed_price:.2f} | PR: skipped", inline=False)
     embed.add_field(name="التفاصيل", value="Latest: No chapters yet | Release: Not scheduled", inline=False)
 
     links = {
@@ -532,7 +597,7 @@ async def project(interaction: discord.Interaction, name: str, drive_folder: str
         "Raw": fix_url(drive_raw) or "https://drive.google.com"
     }
     view = ProjectView(embed, links)
-    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+    await interaction.followup.send(embed=embed, view=view)
 
 
 @bot.tree.command(name="add_chapter", description="نشر فصل جديد")
@@ -565,7 +630,7 @@ async def done(interaction: discord.Interaction, role_type: app_commands.Choice[
 
 @bot.tree.command(name="profile", description="عرض بروفايلك")
 async def profile(interaction: discord.Interaction):
-    await interaction.response.defer()
+    await interaction.response.defer(ephemeral=True)
     data = get_member_profile(interaction.user)
 
     embed = discord.Embed(title=f"👤 {interaction.user.display_name}'s Profile", color=discord.Color.blurple())
@@ -594,7 +659,7 @@ async def profile(interaction: discord.Interaction):
         embed.add_field(name="⚧ Gender", value="— Not set —", inline=True)
 
     view = ProfileButtonsView(interaction.user.id)
-    await interaction.followup.send(embed=embed, view=view)
+    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
