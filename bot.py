@@ -559,6 +559,21 @@ class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
             await interaction.followup.send(content=mention_text, embed=embed)
 
 
+@bot.tree.command(name="debug_sheets", description="[مؤقت] عرض أسماء الشيتات اللي البوت شايفها")
+async def debug_sheets(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    try:
+        client = get_sheet_client()
+        spreadsheet = client.open_by_key(SHEET_ID)
+        titles = [f"'{ws.title}' (طول الاسم: {len(ws.title)} حرف)" for ws in spreadsheet.worksheets()]
+        message = "أسماء الشيتات اللي البوت شايفها:\n" + "\n".join(titles)
+        message += f"\n\nعنوان الملف الكامل: {spreadsheet.title}"
+        await interaction.followup.send(f"```{message}```", ephemeral=True)
+    except Exception as e:
+        print(traceback.format_exc())
+        await interaction.followup.send(f"❌ خطأ: {e}", ephemeral=True)
+
+
 @bot.event
 async def on_ready():
     print(f"البوت شغال باسم: {bot.user}")
