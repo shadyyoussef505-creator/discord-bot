@@ -460,7 +460,7 @@ class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
         self.chapter_number = chapter_number
 
     async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer()
+        await interaction.response.defer(ephemeral=True)
         link_value = fix_url(self.link_input.value) if self.link_input.value else None
         link_display = link_value if link_value else "— No link provided —"
 
@@ -532,7 +532,7 @@ async def project(interaction: discord.Interaction, name: str, drive_folder: str
         "Raw": fix_url(drive_raw) or "https://drive.google.com"
     }
     view = ProjectView(embed, links)
-    await interaction.response.send_message(embed=embed, view=view)
+    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
 @bot.tree.command(name="add_chapter", description="نشر فصل جديد")
