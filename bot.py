@@ -165,9 +165,16 @@ async def project(interaction: discord.Interaction, name: str, drive_folder: str
     embed.add_field(name="السعر", value="TL: $0.50 | ED: $0.50 | PR: skipped", inline=False)
     embed.add_field(name="التفاصيل", value="Latest: No chapters yet | Release: Not scheduled", inline=False)
 
-    links = {"Folder": drive_folder, "Sort": drive_sort, "Raw": drive_raw}
-    view = ProjectView(embed, links)
-    await interaction.response.send_message(embed=embed, view=view)
+    def fix_url(url: str) -> str:
+    if not url.startswith("http://") and not url.startswith("https://"):
+        return "https://drive.google.com"
+    return url
+
+links = {
+    "Folder": fix_url(drive_folder),
+    "Sort": fix_url(drive_sort),
+    "Raw": fix_url(drive_raw)
+}
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
