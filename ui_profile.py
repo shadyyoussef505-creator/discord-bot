@@ -1,7 +1,7 @@
 import discord
 from datetime import datetime
 from config import LOGS_CHANNEL_ID
-from sheets import get_member_profile, async_update_member_field, is_gender_locked, async_record_payment
+from sheets import get_member_profile, async_update_member_field, is_gender_locked, is_role_locked, async_record_payment
 
 
 class ProfileFieldModal(discord.ui.Modal):
@@ -26,6 +26,26 @@ class ProfileFieldModal(discord.ui.Modal):
         await interaction.followup.send(f"✅ تم تحديث {self.field_name} بنجاح", ephemeral=True)
 
 
+class PersonalInfoModal(discord.ui.Modal, title="تعديل المعلومات الشخصية"):
+    name_input = discord.ui.TextInput(label="الاسم", placeholder="مثال: Shady", required=False, max_length=50)
+    country_input = discord.ui.TextInput(label="الدولة", placeholder="مثال: Egypt", required=False, max_length=50)
+    age_input = discord.ui.TextInput(label="السن", placeholder="مثال: 19", required=False, max_length=5)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            if self.name_input.value.strip():
+                async_update_member_field(interaction.user, "Display Name", self.name_input.value.strip())
+            if self.country_input.value.strip():
+                async_update_member_field(interaction.user, "Country", self.country_input.value.strip())
+            if self.age_input.value.strip():
+                async_update_member_field(interaction.user, "Age", self.age_input.value.strip())
+        except Exception as e:
+            await interaction.followup.send(f"❌ حصل خطأ أثناء الحفظ: {e}", ephemeral=True)
+            return
+        await interaction.followup.send("✅ تم تحديث المعلومات الشخصية بنجاح", ephemeral=True)
+
+
 class GenderSelectView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=60)
@@ -46,6 +66,33 @@ class GenderSelectView(discord.ui.View):
             return
         await interaction.followup.send(
             f"✅ تم تسجيل الـ Gender: {select.values[0]}\n"
+            f"🔒 الحقل ده اتقفل دلوقتي، لو عايز تغيره لازم تتواصل مع أدمن.",
+            ephemeral=True
+        )
+
+
+class RoleSelectView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=60)
+
+    @discord.ui.select(
+        placeholder="اختار الـ Staff Role",
+        options=[
+            discord.SelectOption(label="TL", emoji="🎙️"),
+            discord.SelectOption(label="ED", emoji="✏️"),
+            discord.SelectOption(label="PR", emoji="🧹"),
+            discord.SelectOption(label="Leader", emoji="👑"),
+        ]
+    )
+    async def select_role(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            async_update_member_field(interaction.user, "Staff Role", select.values[0])
+        except Exception as e:
+            await interaction.followup.send(f"❌ حصل خطأ أثناء الحفظ: {e}", ephemeral=True)
+            return
+        await interaction.followup.send(
+            f"✅ تم تسجيل الـ Staff Role: {select.values[0]}\n"
             f"🔒 الحقل ده اتقفل دلوقتي، لو عايز تغيره لازم تتواصل مع أدمن.",
             ephemeral=True
         )
@@ -141,14 +188,9 @@ class ProfileButtonsView(discord.ui.View):
         modal = ProfileFieldModal("Email", "الإيميل", "example@gmail.com")
         await interaction.response.send_modal(modal)
 
-    @discord.ui.button(label="Country", style=discord.ButtonStyle.secondary, emoji="🌍")
-    async def edit_country(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = ProfileFieldModal("Country", "الدولة", "مثال: Egypt")
-        await interaction.response.send_modal(modal)
-
-    @discord.ui.button(label="Age", style=discord.ButtonStyle.secondary, emoji="🎂")
-    async def edit_age(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = ProfileFieldModal("Age", "السن", "مثال: 19")
+    @discord.ui.button(label="Personal Info", style=discord.ButtonStyle.secondary, emoji="📋")
+    async def edit_personal_info(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = PersonalInfoModal()
         await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="Gender", style=discord.ButtonStyle.success, emoji="⚧")
@@ -161,3 +203,14 @@ class ProfileButtonsView(discord.ui.View):
             return
         view = GenderSelectView()
         await interaction.response.send_message("اختار الـ Gender بتاعك:", view=view, ephemeral=True)
+
+    @discord.ui.button(label="Staff Role", style=discord.ButtonStyle.success, emoji="🏷️")
+    async def edit_role(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if is_role_locked(interaction.user):
+            await interaction.response.send_message(
+                "🔒 الحقل ده مقفول بالفعل، لازم تتواصل مع أدمن عشان يغيره.",
+                ephemeral=True
+            )
+            return
+        view = RoleSelectView()
+        await interaction.response.send_message("اختار الـ Staff Role بتاعك:", view=view, ephemeral=True)
