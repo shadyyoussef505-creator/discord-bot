@@ -635,35 +635,52 @@ def log_chapter_done(project_name: str, chapter_number: str, user, role: str):
     tl_price, ed_price = get_project_prices(project_name)
     amount = tl_price if role == "TL" else ed_price
 
-    spreadsheet.worksheet("Log").append_row([
-        datetime.now().strftime("%Y-%m-%d %H:%M"), project_name, chapter_number, str(user), role, amount
+    # سجل في اللوج الأول
+    log_sheet = spreadsheet.worksheet("Log")
+    log_sheet.append_row([
+        datetime.now().strftime("%Y-%m-%d %H:%M"), project_name, chapter_number, str(user), role, amount,
+        str(user.id)
     ])
 
+    # احسب المجموع الحقيقي من اللوج مباشرةً
+    log_records = log_sheet.get_all_records()
+    user_name = str(user)
+    user_id = str(user.id)
+
+    total_tl = 0
+    total_ed = 0
+    total_earned = 0.0
+
+    for row in log_records:
+        row_person = str(get_row_value(row, "Person", "User") or "").strip()
+        row_discord_id = str(get_row_value(row, "Discord ID") or "").strip()
+        row_role = str(get_row_value(row, "Role") or "").strip().upper()
+        row_amount = parse_float(get_row_value(row, "Amount") or 0)
+
+        if row_person != user_name and row_discord_id != user_id:
+            continue
+
+        if row_role == "TL":
+            total_tl += 1
+        elif row_role == "ED":
+            total_ed += 1
+
+        total_earned += row_amount
+
     members_sheet = spreadsheet.worksheet("Members")
-    row_index, existing_row = find_member_row(members_sheet, str(user.id))
+    row_index, existing_row = find_member_row(members_sheet, user_id)
+    current_paid_out = parse_float((existing_row or {}).get("Paid Out", 0) or 0)
+    new_unpaid = total_earned - current_paid_out
 
     if row_index:
-        current_tl = int(existing_row.get("TL Chapters", 0) or 0)
-        current_ed = int(existing_row.get("ED Chapters", 0) or 0)
-        current_total_earned = parse_float(existing_row.get("Total Earned", 0) or 0)
-        current_paid_out = parse_float(existing_row.get("Paid Out", 0) or 0)
-
-        if role == "TL":
-            current_tl += 1
-        else:
-            current_ed += 1
-        current_total_earned += amount
-        new_unpaid = current_total_earned - current_paid_out
-
-        members_sheet.update(f"C{row_index}:E{row_index}", [[current_tl, current_ed, new_unpaid]])
-        members_sheet.update(f"O{row_index}:P{row_index}", [[current_total_earned, current_paid_out]])
+        members_sheet.update(f"C{row_index}:E{row_index}", [[total_tl, total_ed, new_unpaid]])
+        members_sheet.update(f"O{row_index}:P{row_index}", [[total_earned, current_paid_out]])
     else:
-        new_tl = 1 if role == "TL" else 0
-        new_ed = 1 if role == "ED" else 0
         members_sheet.append_row([
-            str(user.id), str(user), new_tl, new_ed, amount,
-            "", "", "", "", "", "", "", "", "", amount, 0
+            user_id, user_name, total_tl, total_ed, new_unpaid,
+            "", "", "", "", "", "", "", "", "", total_earned, 0
         ])
+
     return amount
 
 
