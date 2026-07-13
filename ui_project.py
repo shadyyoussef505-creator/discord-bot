@@ -269,8 +269,10 @@ class ProjectView(discord.ui.View):
             project_name = self.embed.title.replace("📖", "").strip()
             modal = PricingEditModal(project_name, self.embed, interaction.message)
             await interaction.response.send_modal(modal)
-        except Exception:
-            await safe_component_reply(interaction, "❌ فشل فتح نافذة تعديل السعر، حاول مرة أخرى.", ephemeral=True)
+        except Exception as e:
+            import traceback
+            print(traceback.format_exc())
+            await safe_component_reply(interaction, f"❌ فشل فتح نافذة تعديل السعر: {e}", ephemeral=True)
 
     @discord.ui.button(label="Edit Status", style=discord.ButtonStyle.secondary, row=1, custom_id="project_edit_status")
     async def edit_status(self, interaction: discord.Interaction, button: discord.ui.Button):
