@@ -132,26 +132,30 @@ def _cache_projects(records):
     CACHE["project_map"] = {}
     CACHE["project_name_map"] = {}
     for row in records:
-        project_name = str(get_row_value(row, "Project Name") or "").strip()
+        raw_name = get_row_value(row, "Project Name") or ""
+        project_name = str(raw_name).strip()
         if not project_name:
             continue
         normalized_name = normalize_project_name(project_name)
-        tl_price = parse_float(get_row_value(row, "TL Price", "TL") or 0)
-        ed_price = parse_float(get_row_value(row, "ED Price", "ED") or 0)
+        if not normalized_name:
+            continue
+        tl_price = parse_float(get_row_value(row, "TL Price", "TL") or 0.0, default=0.0)
+        ed_price = parse_float(get_row_value(row, "ED Price", "ED") or 0.0, default=0.0)
         row["Project Name"] = project_name
         row["TL Price"] = tl_price
         row["ED Price"] = ed_price
         CACHE["projects"].append(row)
         CACHE["project_map"][normalized_name] = row
-        CACHE["project_name_map"][project_name] = row
+        CACHE["project_name_map"][project_name.lower().strip()] = row
 
 
 def _cache_members(records):
     CACHE["members"] = {}
     for row in records:
-        user_id = str(row.get("Discord ID", "")).strip()
-        if user_id:
-            CACHE["members"][user_id] = row
+        raw_id = row.get("Discord ID") or row.get("ID") or row.get("User")
+        normalized_id = normalize_discord_id(raw_id)
+        if normalized_id is not None:
+            CACHE["members"][str(normalized_id)] = row
 
 
 def _cache_chapters(records):
@@ -285,9 +289,9 @@ def get_reminder_channel_id(project_name: str):
     return normalize_discord_id(project.get("Reminder Channel ID") or project.get("Reminder Channel") or project.get("Project Channel ID") or project.get("Channel ID"))
 
 
-def get_member_profile_from_sheet(user):
-    user_id = str(getattr(user, "id", user)).strip()
-    if not user_id.isdigit():
+def get_member_profile_from_sheet(user_obj):
+    user_id = normalize_discord_id(getattr(user_obj, "id", user_obj))
+    if user_id is None:
         return None
 
     client = get_sheet_client()
@@ -295,18 +299,22 @@ def get_member_profile_from_sheet(user):
     records = sheet.get_all_records()
 
     for row in records:
-        row_id = row.get("Discord ID") or row.get("ID") or row.get("User")
-        if normalize_discord_id(row_id) == int(user_id):
+        raw_id = row.get("Discord ID") or row.get("ID") or row.get("User")
+        if normalize_discord_id(raw_id) == user_id:
             return row
     return None
 
 
-def get_member_profile(user, refresh_member: bool = False):
+def get_member_profile(user_obj, refresh_member: bool = False):
     _ensure_cache_loaded()
-    user_key = str(user.id)
+    user_id = normalize_discord_id(getattr(user_obj, "id", user_obj))
+    if user_id is None:
+        return None
+
+    user_key = str(user_id)
 
     if refresh_member:
-        row = get_member_profile_from_sheet(user)
+        row = get_member_profile_from_sheet(user_obj)
         if row is not None:
             CACHE["members"][user_key] = row
         return row
@@ -315,7 +323,7 @@ def get_member_profile(user, refresh_member: bool = False):
     if member is not None:
         return member
 
-    row = get_member_profile_from_sheet(user)
+    row = get_member_profile_from_sheet(user_obj)
     if row is not None:
         CACHE["members"][user_key] = row
     return row
