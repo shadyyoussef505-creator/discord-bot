@@ -5,7 +5,7 @@ import os
 import traceback
 
 from config import ADMIN_ROLE_ID, EDITOR_ROLE_ID
-from sheets import fix_url, get_member_profile, log_chapter_done, upsert_project_pricing
+from sheets import fix_url, get_member_profile, log_chapter_done, upsert_project_pricing, find_project_by_channel_name
 from ui_project import ProjectView
 from ui_chapter import AddChapterModal, DoneModal
 from ui_profile import AdminProfileView, ProfileButtonsView
@@ -88,15 +88,30 @@ async def add_chapter(interaction: discord.Interaction, project_name: str, chapt
 @bot.tree.command(name="done", description="إعلان إنجاز الترجمة أو التعديل وتسجيله في الشيت")
 @app_commands.describe(
     role_type="هل انت المترجم ولا المحرر؟",
-    project_name="اسم المشروع (لازم يكون مطابق للاسم في شيت Projects)",
+    project_name="اسم المشروع (اختياري؛ يتم التعرف عليه تلقائياً من اسم القناة إذا تركته فارغًا)",
     chapter_number="رقم الفصل"
 )
 @app_commands.choices(role_type=[
     app_commands.Choice(name="TL - مترجم", value="TL"),
     app_commands.Choice(name="ED - محرر", value="ED"),
 ])
-async def done(interaction: discord.Interaction, role_type: app_commands.Choice[str], project_name: str, chapter_number: str):
-    modal = DoneModal(role_type.value, project_name, chapter_number)
+async def done(interaction: discord.Interaction, role_type: app_commands.Choice[str], project_name: str = None, chapter_number: str = None):
+    auto_detected = False
+    if project_name is None or str(project_name).strip() == "":
+        channel_name = getattr(interaction.channel, "name", "") or ""
+        cleaned_channel_name = channel_name.replace("-", " ").replace("_", " ").strip().lower()
+        project_name = find_project_by_channel_name(cleaned_channel_name)
+
+        if project_name:
+            auto_detected = True
+        else:
+            await interaction.response.send_message(
+                "❌ لم أتمكن من تحديد المشروع من اسم القناة الحالية. الرجاء إعادة الأمر مع اسم المشروع يدوياً.",
+                ephemeral=True
+            )
+            return
+
+    modal = DoneModal(role_type.value, project_name, chapter_number, auto_detected=auto_detected)
     await interaction.response.send_modal(modal)
 
 

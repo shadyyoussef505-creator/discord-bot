@@ -86,11 +86,12 @@ class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
         label="الرابط (اختياري)", placeholder="https://drive.google.com/...", required=False
     )
 
-    def __init__(self, role_type: str, project_name: str, chapter_number: str):
+    def __init__(self, role_type: str, project_name: str, chapter_number: str, auto_detected: bool = False):
         super().__init__()
         self.role_type = role_type
         self.project_name = project_name
         self.chapter_number = chapter_number
+        self.auto_detected = auto_detected
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -102,6 +103,12 @@ class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
         except Exception as e:
             await interaction.followup.send(f"❌ حصل خطأ أثناء التسجيل في الشيت: {e}")
             return
+
+        if self.auto_detected:
+            await interaction.followup.send(
+                f"✅ تم تسجيل الفصل {self.chapter_number} بنجاح في مشروع '{self.project_name}' (تم التعرف على المشروع تلقائياً من اسم القناة).",
+                ephemeral=True
+            )
 
         if self.role_type == "TL":
             embed = discord.Embed(
@@ -128,10 +135,11 @@ class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
             embed.add_field(name="المسجل بواسطة", value=f"{interaction.user.mention}", inline=False)
             embed.add_field(name="التاريخ والوقت", value=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"), inline=False)
 
-            editor_role = interaction.guild.get_role(EDITOR_ROLE_ID)
-            mention_text = editor_role.mention if editor_role else "@Editors"
             await interaction.followup.send(content=mention_text, embed=embed)
-            await self.send_done_log(interaction, role_type="TL", amount=amount)
+            try:
+                await self.send_done_log(interaction, role_type="TL", amount=amount)
+            except Exception:
+                pass
         else:
             embed = discord.Embed(
                 title="📢 Editing Done — Ready for Release!",
@@ -148,31 +156,32 @@ class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
             admin_role = interaction.guild.get_role(ADMIN_ROLE_ID)
             mention_text = admin_role.mention if admin_role else "@Admins"
             await interaction.followup.send(content=mention_text, embed=embed)
-            await self.send_done_log(interaction, role_type="ED", amount=amount)
+            try:
+                await self.send_done_log(interaction, role_type="ED", amount=amount)
+            except Exception:
+                pass
 
     async def send_done_log(self, interaction: discord.Interaction, role_type: str, amount: float):
-        if LOGS_CHANNEL_ID == 0:
-            return
-        if not interaction.guild:
-            return
-
-        logs_channel = interaction.guild.get_channel(LOGS_CHANNEL_ID)
-        if logs_channel is None:
-            return
-
-        embed = discord.Embed(
-            title="📝 تم تسجيل إنجاز فصل",
-            color=discord.Color.blurple(),
-            timestamp=datetime.utcnow()
-        )
-        embed.add_field(name="المشروع", value=self.project_name, inline=False)
-        embed.add_field(name="رقم الفصل", value=self.chapter_number, inline=True)
-        embed.add_field(name="الدور", value=role_type, inline=True)
-        embed.add_field(name="المسجل بواسطة", value=f"{interaction.user.mention}", inline=False)
-        embed.add_field(name="المبلغ", value=f"${amount:.2f}", inline=True)
-        embed.add_field(name="التاريخ والوقت", value=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"), inline=False)
-
         try:
+            if LOGS_CHANNEL_ID == 0 or not interaction.guild:
+                return
+
+            logs_channel = interaction.guild.get_channel(LOGS_CHANNEL_ID)
+            if logs_channel is None:
+                return
+
+            embed = discord.Embed(
+                title="📝 تم تسجيل إنجاز فصل",
+                color=discord.Color.blurple(),
+                timestamp=datetime.utcnow()
+            )
+            embed.add_field(name="المشروع", value=self.project_name, inline=False)
+            embed.add_field(name="رقم الفصل", value=self.chapter_number, inline=True)
+            embed.add_field(name="الدور", value=role_type, inline=True)
+            embed.add_field(name="المسجل بواسطة", value=f"{interaction.user.mention}", inline=False)
+            embed.add_field(name="المبلغ", value=f"${amount:.2f}", inline=True)
+            embed.add_field(name="التاريخ والوقت", value=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"), inline=False)
+
             await logs_channel.send(embed=embed)
         except Exception:
             pass

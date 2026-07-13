@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import gspread
 from datetime import datetime
@@ -19,6 +20,34 @@ def get_sheet_client():
     creds_json = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
     creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_json, scope)
     return gspread.authorize(creds)
+
+
+def normalize_project_name(name: str) -> str:
+    if not name:
+        return ""
+    normalized = re.sub(r"[_\-]+", " ", str(name).strip())
+    return normalized.lower()
+
+
+def find_project_by_channel_name(channel_name: str):
+    normalized_channel = normalize_project_name(channel_name)
+    if not normalized_channel:
+        return None
+
+    client = get_sheet_client()
+    sheet = client.open_by_key(SHEET_ID).worksheet("Projects")
+    records = sheet.get_all_records()
+    project_names = [str(row.get("Project Name", "")).strip() for row in records if row.get("Project Name")]
+
+    exact_matches = [name for name in project_names if normalize_project_name(name) == normalized_channel]
+    if exact_matches:
+        return exact_matches[0]
+
+    contains_matches = [name for name in project_names if normalized_channel in normalize_project_name(name)]
+    if len(contains_matches) == 1:
+        return contains_matches[0]
+
+    return None
 
 
 def get_project_prices(project_name: str):
