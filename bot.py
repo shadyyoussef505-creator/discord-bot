@@ -1,11 +1,21 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 import os
 import traceback
+from datetime import datetime, time as dt_time
 
-from config import ADMIN_ROLE_ID, EDITOR_ROLE_ID
-from sheets import fix_url, get_member_profile, log_chapter_done, upsert_project_pricing, find_project_by_channel_name
+from config import ADMIN_ROLE_ID, EDITOR_ROLE_ID, CACHE_REFRESH_INTERVAL_SECONDS, AUTO_REMINDER_ENABLED, AUTO_REMINDER_TIME, REMINDER_CHANNEL_ID
+from sheets import (
+    fix_url,
+    get_member_profile,
+    async_log_chapter_done,
+    async_upsert_project_pricing,
+    find_project_by_channel_name,
+    refresh_cache,
+    get_overdue_claimed_chapters,
+    get_reminder_channel_id,
+)
 from ui_project import ProjectView
 from ui_chapter import AddChapterModal, DoneModal
 from ui_profile import AdminProfileView, ProfileButtonsView
@@ -34,6 +44,17 @@ async def on_ready():
         print(traceback.format_exc())
         print(e)
 
+    try:
+        await bot.loop.run_in_executor(None, refresh_cache)
+    except Exception:
+        pass
+
+    if not refresh_cache_task.is_running():
+        refresh_cache_task.start()
+
+    if AUTO_REMINDER_ENABLED and not daily_reminder_task.is_running():
+        daily_reminder_task.start()
+
 
 @bot.tree.command(name="project", description="عرض بطاقة مشروع")
 @app_commands.describe(
@@ -49,7 +70,7 @@ async def project(interaction: discord.Interaction, name: str, tl_price: float, 
     await interaction.response.defer()
 
     try:
-        upsert_project_pricing(name, tl_price, ed_price)
+        await async_upsert_project_pricing(name, tl_price, ed_price)
     except Exception as e:
         print("========== خطأ في /project ==========")
         print(traceback.format_exc())
@@ -76,13 +97,34 @@ async def project(interaction: discord.Interaction, name: str, tl_price: float, 
 
 @bot.tree.command(name="add_chapter", description="نشر فصل جديد")
 @app_commands.describe(
-    project_name="اسم المشروع",
+    project_name="اسم المشروع (اختياري؛ يتم التعرف عليه تلقائياً من اسم القناة إذا تركته فارغًا)",
     chapter_number="رقم الفصل",
     mention="الرتبة اللي هتتعمله منشن (اختياري)"
 )
-async def add_chapter(interaction: discord.Interaction, project_name: str, chapter_number: str, mention: discord.Role = None):
+async def add_chapter(interaction: discord.Interaction, chapter_number: str, project_name: str = None, mention: discord.Role = None):
+    auto_detected = False
+    if project_name is None or str(project_name).strip() == "":
+        channel_name = getattr(interaction.channel, "name", "") or ""
+        cleaned_channel_name = channel_name.replace("-", " ").replace("_", " ").strip().lower()
+        project_name = find_project_by_channel_name(cleaned_channel_name)
+
+        if project_name:
+            auto_detected = True
+        else:
+            await interaction.response.send_message(
+                "❌ لم أتمكن من تحديد المشروع من اسم القناة الحالية. الرجاء إعادة الأمر مع اسم المشروع يدوياً.",
+                ephemeral=True
+            )
+            return
+
     modal = AddChapterModal(project_name, chapter_number, mention)
     await interaction.response.send_modal(modal)
+
+    if auto_detected:
+        await interaction.followup.send(
+            f"✅ تم التعرف تلقائياً على المشروع '{project_name}' من اسم القناة.",
+            ephemeral=True
+        )
 
 
 @bot.tree.command(name="done", description="إعلان إنجاز الترجمة أو التعديل وتسجيله في الشيت")
@@ -113,6 +155,68 @@ async def done(interaction: discord.Interaction, role_type: app_commands.Choice[
 
     modal = DoneModal(role_type.value, project_name, chapter_number, auto_detected=auto_detected)
     await interaction.response.send_modal(modal)
+
+
+def _parse_reminder_time():
+    try:
+        return dt_time.fromisoformat(AUTO_REMINDER_TIME)
+    except ValueError:
+        return dt_time(hour=0, minute=0)
+
+
+@tasks.loop(seconds=CACHE_REFRESH_INTERVAL_SECONDS)
+async def refresh_cache_task():
+    await bot.loop.run_in_executor(None, refresh_cache)
+
+
+@tasks.loop(time=_parse_reminder_time())
+async def daily_reminder_task():
+    overdue_chapters = get_overdue_claimed_chapters()
+    if not overdue_chapters:
+        return
+
+    grouped = {}
+    for row in overdue_chapters:
+        channel_id = row.get("reminder_channel_id") or REMINDER_CHANNEL_ID
+        if not channel_id:
+            continue
+        grouped.setdefault(channel_id, []).append(row)
+
+    for channel_id, rows in grouped.items():
+        channel = bot.get_channel(channel_id)
+        if channel is None:
+            continue
+
+        embed = discord.Embed(
+            title="⏰ تذكيرات الفصول المتأخرة",
+            description="الفصول التالية متأخرة عن التسليم:",
+            color=discord.Color.orange(),
+            timestamp=datetime.utcnow()
+        )
+
+        for row in rows:
+            name = row["project_name"]
+            chap = row["chapter_number"]
+            deadline = row["deadline"].strftime("%Y-%m-%d %H:%M")
+            role_label = "Translator" if row["role"] == "TL" else "Editor"
+            claimer = row["claimer"]
+            embed.add_field(
+                name=f"{name} — Chapter {chap}",
+                value=f"{role_label}: {claimer}\nDeadline: {deadline}",
+                inline=False
+            )
+
+        mention_lines = []
+        for row in rows:
+            claimer_id = row.get("claimer_id")
+            if claimer_id:
+                mention_lines.append(f"<@{claimer_id}>")
+        mention_text = " ".join(dict.fromkeys(mention_lines))
+
+        if mention_text:
+            await channel.send(content=mention_text, embed=embed)
+        else:
+            await channel.send(embed=embed)
 
 
 @bot.tree.command(name="profile", description="عرض بروفايلك أو بروفايل عضو تاني (أدمن بس)")
