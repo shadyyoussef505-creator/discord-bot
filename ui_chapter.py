@@ -1,7 +1,7 @@
 import discord
 from datetime import datetime
 from config import ADMIN_ROLE_ID, EDITOR_ROLE_ID, LOGS_CHANNEL_ID
-from sheets import log_chapter_done, fix_url
+from sheets import async_log_chapter_done, fix_url, get_project_team_discord_ids
 
 
 class ChapterView(discord.ui.View):
@@ -72,13 +72,21 @@ class AddChapterModal(discord.ui.Modal, title="تفاصيل الفصل"):
         embed.add_field(name="📝 Note", value=note_display, inline=True)
         embed.set_footer(text=f"{self.project_name} • Chapter Panel")
 
-        view = ChapterView(embed)
-        await interaction.response.send_message(embed=embed, view=view)
-
+        tl_id, ed_id = get_project_team_discord_ids(self.project_name)
+        mentions = []
         if self.mention:
-            await interaction.channel.send(
-                f"{self.mention.mention} 📢 Chapter {self.chapter_number} of **{self.project_name}** is here! Claim your slot above 👆"
-            )
+            mentions.append(self.mention.mention)
+        if tl_id:
+            mentions.append(f"<@{tl_id}>")
+        if ed_id:
+            mentions.append(f"<@{ed_id}>")
+
+        mention_text = " ".join(mentions).strip()
+        if mention_text:
+            mention_text = f"{mention_text}\n"
+
+        view = ChapterView(embed)
+        await interaction.response.send_message(content=mention_text or None, embed=embed, view=view)
 
 
 class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
@@ -99,7 +107,7 @@ class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
         link_display = link_value if link_value else "— No link provided —"
 
         try:
-            amount = log_chapter_done(self.project_name, self.chapter_number, interaction.user, self.role_type)
+            amount = async_log_chapter_done(self.project_name, self.chapter_number, interaction.user, self.role_type)
         except Exception as e:
             await interaction.followup.send(f"❌ حصل خطأ أثناء التسجيل في الشيت: {e}")
             return

@@ -1,5 +1,20 @@
 import discord
-from sheets import upsert_project_pricing, fix_url
+from config import LOGS_CHANNEL_ID
+from sheets import async_upsert_project_pricing, fix_url
+
+
+async def safe_send_logs_channel(interaction: discord.Interaction, embed: discord.Embed):
+    try:
+        if LOGS_CHANNEL_ID == 0 or not interaction.guild:
+            return
+
+        logs_channel = interaction.guild.get_channel(LOGS_CHANNEL_ID)
+        if logs_channel is None:
+            return
+
+        await logs_channel.send(embed=embed)
+    except Exception:
+        pass
 
 
 class TextEditModal(discord.ui.Modal):
@@ -24,6 +39,20 @@ class TextEditModal(discord.ui.Modal):
         await self.message.edit(embed=self.embed)
         await interaction.response.send_message(f"تم تحديث {self.field_name} ✅", ephemeral=True)
 
+        try:
+            embed = discord.Embed(
+                title="✏️ تم تعديل مشروع",
+                description=f"{self.field_name} تم تحديثه في بطاقة المشروع.",
+                color=discord.Color.green(),
+                timestamp=discord.utils.utcnow()
+            )
+            embed.add_field(name="الحقل", value=self.field_name, inline=True)
+            embed.add_field(name="القيمة الجديدة", value=new_value, inline=True)
+            embed.add_field(name="المشروع", value=self.embed.title.replace("📖", "").strip(), inline=False)
+            await safe_send_logs_channel(interaction, embed)
+        except Exception:
+            pass
+
 
 class LinkEditModal(discord.ui.Modal):
     def __init__(self, link_name: str, project_view):
@@ -43,6 +72,19 @@ class LinkEditModal(discord.ui.Modal):
         new_view = self.project_view.rebuild()
         await interaction.message.edit(view=new_view)
         await interaction.response.send_message(f"تم تحديث رابط {self.link_name} ✅", ephemeral=True)
+
+        try:
+            embed = discord.Embed(
+                title="✏️ تم تعديل رابط مشروع",
+                description=f"رابط {self.link_name} تم تحديثه.",
+                color=discord.Color.green(),
+                timestamp=discord.utils.utcnow()
+            )
+            embed.add_field(name="الرابط", value=new_link, inline=False)
+            embed.add_field(name="المشروع", value=self.project_view.embed.title.replace("📖", "").strip(), inline=False)
+            await safe_send_logs_channel(interaction, embed)
+        except Exception:
+            pass
 
 
 class PricingEditModal(discord.ui.Modal, title="تعديل السعر"):
@@ -65,7 +107,7 @@ class PricingEditModal(discord.ui.Modal, title="تعديل السعر"):
 
         await interaction.response.defer(ephemeral=True)
         try:
-            upsert_project_pricing(self.project_name, tl_price, ed_price)
+            async_upsert_project_pricing(self.project_name, tl_price, ed_price)
         except Exception as e:
             await interaction.followup.send(f"❌ حصل خطأ أثناء تحديث الشيت: {e}", ephemeral=True)
             return
@@ -81,6 +123,20 @@ class PricingEditModal(discord.ui.Modal, title="تعديل السعر"):
                 break
 
         await self.message.edit(embed=self.embed)
+
+        try:
+            embed = discord.Embed(
+                title="✏️ تم تعديل أسعار المشروع",
+                description=f"تم تحديث السعر في المشروع {self.project_name}.",
+                color=discord.Color.green(),
+                timestamp=discord.utils.utcnow()
+            )
+            embed.add_field(name="TL", value=f"${tl_price:.2f}", inline=True)
+            embed.add_field(name="ED", value=f"${ed_price:.2f}", inline=True)
+            await safe_send_logs_channel(interaction, embed)
+        except Exception:
+            pass
+
         await interaction.followup.send("✅ تم تحديث السعر في البطاقة والشيت معًا", ephemeral=True)
 
 
@@ -102,6 +158,20 @@ class UserSelectView(discord.ui.View):
         await interaction.response.send_message(
             f"تم تحديث {self.field_name} إلى {chosen_user.mention} ✅", ephemeral=True
         )
+
+        try:
+            embed = discord.Embed(
+                title="✏️ تم تعديل الفريق في مشروع",
+                description=f"{self.field_name} تم تحديثه إلى {chosen_user.mention}.",
+                color=discord.Color.green(),
+                timestamp=discord.utils.utcnow()
+            )
+            embed.add_field(name="الدور", value=self.field_name, inline=True)
+            embed.add_field(name="العضو", value=chosen_user.mention, inline=True)
+            embed.add_field(name="المشروع", value=self.embed.title.replace("📖", "").strip(), inline=False)
+            await safe_send_logs_channel(interaction, embed)
+        except Exception:
+            pass
 
 
 class ProjectView(discord.ui.View):

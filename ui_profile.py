@@ -1,7 +1,7 @@
 import discord
 from datetime import datetime
 from config import LOGS_CHANNEL_ID
-from sheets import get_member_profile, update_member_field, is_gender_locked, record_payment
+from sheets import get_member_profile, async_update_member_field, is_gender_locked, async_record_payment
 
 
 class ProfileFieldModal(discord.ui.Modal):
@@ -19,7 +19,7 @@ class ProfileFieldModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         try:
-            update_member_field(interaction.user, self.field_name, self.value_input.value)
+            async_update_member_field(interaction.user, self.field_name, self.value_input.value)
         except Exception as e:
             await interaction.followup.send(f"❌ حصل خطأ أثناء الحفظ: {e}", ephemeral=True)
             return
@@ -40,7 +40,7 @@ class GenderSelectView(discord.ui.View):
     async def select_gender(self, interaction: discord.Interaction, select: discord.ui.Select):
         await interaction.response.defer(ephemeral=True)
         try:
-            update_member_field(interaction.user, "Gender", select.values[0])
+            async_update_member_field(interaction.user, "Gender", select.values[0])
         except Exception as e:
             await interaction.followup.send(f"❌ حصل خطأ أثناء الحفظ: {e}", ephemeral=True)
             return
@@ -67,7 +67,7 @@ class PaymentAmountModal(discord.ui.Modal, title="تسجيل دفعة"):
 
         await interaction.response.defer(ephemeral=True)
         try:
-            new_unpaid = record_payment(self.target_user, amount)
+            new_unpaid = async_record_payment(self.target_user, amount)
         except Exception as e:
             await interaction.followup.send(f"❌ حصل خطأ أثناء تسجيل الدفعة: {e}", ephemeral=True)
             return
