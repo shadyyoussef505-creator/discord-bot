@@ -1,5 +1,6 @@
 import discord
-from config import ADMIN_ROLE_ID, EDITOR_ROLE_ID
+from datetime import datetime
+from config import ADMIN_ROLE_ID, EDITOR_ROLE_ID, LOGS_CHANNEL_ID
 from sheets import log_chapter_done, fix_url
 
 
@@ -115,17 +116,63 @@ class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
 
             editor_role = interaction.guild.get_role(EDITOR_ROLE_ID)
             mention_text = editor_role.mention if editor_role else "@Editors"
+            embed = discord.Embed(
+                title="✅ Translation Done!",
+                description=f"**{self.project_name}** • Chapter {self.chapter_number}",
+                color=discord.Color.blue(),
+                timestamp=datetime.utcnow()
+            )
+            embed.add_field(name="🎙️ Translator", value=interaction.user.mention, inline=True)
+            embed.add_field(name="🔗 Link", value=link_display, inline=False)
+            embed.add_field(name="💰 Amount", value=f"${amount:.2f}", inline=True)
+            embed.add_field(name="المسجل بواسطة", value=f"{interaction.user.mention}", inline=False)
+            embed.add_field(name="التاريخ والوقت", value=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"), inline=False)
+
+            editor_role = interaction.guild.get_role(EDITOR_ROLE_ID)
+            mention_text = editor_role.mention if editor_role else "@Editors"
             await interaction.followup.send(content=mention_text, embed=embed)
+            await self.send_done_log(interaction, role_type="TL", amount=amount)
         else:
             embed = discord.Embed(
                 title="📢 Editing Done — Ready for Release!",
                 description=f"**{self.project_name}** • Chapter {self.chapter_number}",
-                color=discord.Color.purple()
+                color=discord.Color.purple(),
+                timestamp=datetime.utcnow()
             )
             embed.add_field(name="✏️ Editor", value=interaction.user.mention, inline=True)
             embed.add_field(name="🔗 Final Link", value=link_display, inline=False)
             embed.add_field(name="💰 Amount", value=f"${amount:.2f}", inline=True)
+            embed.add_field(name="المسجل بواسطة", value=f"{interaction.user.mention}", inline=False)
+            embed.add_field(name="التاريخ والوقت", value=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"), inline=False)
 
             admin_role = interaction.guild.get_role(ADMIN_ROLE_ID)
             mention_text = admin_role.mention if admin_role else "@Admins"
             await interaction.followup.send(content=mention_text, embed=embed)
+            await self.send_done_log(interaction, role_type="ED", amount=amount)
+
+    async def send_done_log(self, interaction: discord.Interaction, role_type: str, amount: float):
+        if LOGS_CHANNEL_ID == 0:
+            return
+        if not interaction.guild:
+            return
+
+        logs_channel = interaction.guild.get_channel(LOGS_CHANNEL_ID)
+        if logs_channel is None:
+            return
+
+        embed = discord.Embed(
+            title="📝 تم تسجيل إنجاز فصل",
+            color=discord.Color.blurple(),
+            timestamp=datetime.utcnow()
+        )
+        embed.add_field(name="المشروع", value=self.project_name, inline=False)
+        embed.add_field(name="رقم الفصل", value=self.chapter_number, inline=True)
+        embed.add_field(name="الدور", value=role_type, inline=True)
+        embed.add_field(name="المسجل بواسطة", value=f"{interaction.user.mention}", inline=False)
+        embed.add_field(name="المبلغ", value=f"${amount:.2f}", inline=True)
+        embed.add_field(name="التاريخ والوقت", value=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"), inline=False)
+
+        try:
+            await logs_channel.send(embed=embed)
+        except Exception:
+            pass

@@ -1,4 +1,6 @@
 import discord
+from datetime import datetime
+from config import LOGS_CHANNEL_ID
 from sheets import get_member_profile, update_member_field, is_gender_locked, record_payment
 
 
@@ -75,6 +77,32 @@ class PaymentAmountModal(discord.ui.Modal, title="تسجيل دفعة"):
             f"💰 الرصيد المتبقي عليه دلوقتي: ${new_unpaid:.2f}",
             ephemeral=True
         )
+        await self.send_payment_log(interaction, amount)
+
+    async def send_payment_log(self, interaction: discord.Interaction, amount: float):
+        if LOGS_CHANNEL_ID == 0:
+            return
+        if not interaction.guild:
+            return
+
+        logs_channel = interaction.guild.get_channel(LOGS_CHANNEL_ID)
+        if logs_channel is None:
+            return
+
+        embed = discord.Embed(
+            title="📌 تم تسجيل دفعة مالية",
+            color=discord.Color.green(),
+            timestamp=datetime.utcnow()
+        )
+        embed.add_field(name="العضو", value=f"{self.target_user.mention}", inline=False)
+        embed.add_field(name="المبلغ", value=f"${amount:.2f}", inline=True)
+        embed.add_field(name="المسجل بواسطة", value=f"{interaction.user.mention}", inline=True)
+        embed.add_field(name="التاريخ والوقت", value=datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"), inline=False)
+
+        try:
+            await logs_channel.send(embed=embed)
+        except Exception:
+            pass
 
 
 class AdminProfileView(discord.ui.View):
