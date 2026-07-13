@@ -86,8 +86,25 @@ def parse_date(value):
 def normalize_project_name(name: str) -> str:
     if not name:
         return ""
-    normalized = re.sub(r"[_\-]+", " ", str(name).strip())
-    return normalized.lower()
+    text = str(name).strip().lower()
+    text = text.replace("\u00A0", " ")
+    text = re.sub(r"[_\-]+", " ", text)
+    text = re.sub(r"[^\w\s]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def get_row_value(row, *keys):
+    if not isinstance(row, dict):
+        return None
+    for key in keys:
+        if key in row and row[key] is not None:
+            return row[key]
+    lower_map = {str(k).strip().lower(): v for k, v in row.items() if k is not None}
+    for key in keys:
+        lower_key = str(key).strip().lower()
+        if lower_key in lower_map:
+            return lower_map[lower_key]
+    return None
 
 
 def normalize_discord_id(value):
@@ -104,15 +121,22 @@ def normalize_discord_id(value):
 
 
 def _cache_projects(records):
-    CACHE["projects"] = records
+    CACHE["projects"] = []
     CACHE["project_map"] = {}
     CACHE["project_name_map"] = {}
     for row in records:
-        project_name = str(row.get("Project Name", "")).strip()
+        project_name = str(get_row_value(row, "Project Name") or "").strip()
+        if not project_name:
+            continue
         normalized_name = normalize_project_name(project_name)
-        if project_name:
-            CACHE["project_map"][normalized_name] = row
-            CACHE["project_name_map"][project_name] = row
+        tl_price = parse_float(get_row_value(row, "TL Price", "TL") or 0)
+        ed_price = parse_float(get_row_value(row, "ED Price", "ED") or 0)
+        row["Project Name"] = project_name
+        row["TL Price"] = tl_price
+        row["ED Price"] = ed_price
+        CACHE["projects"].append(row)
+        CACHE["project_map"][normalized_name] = row
+        CACHE["project_name_map"][project_name] = row
 
 
 def _cache_members(records):
@@ -132,6 +156,13 @@ def _cache_pending(records):
 
 
 def refresh_cache():
+    CACHE["projects"] = []
+    CACHE["project_map"] = {}
+    CACHE["project_name_map"] = {}
+    CACHE["members"] = {}
+    CACHE["chapters"] = []
+    CACHE["pending"] = []
+
     client = get_sheet_client()
     spreadsheet = client.open_by_key(SHEET_ID)
 
@@ -190,10 +221,37 @@ def find_project_by_channel_name(channel_name: str):
 
 def get_project_prices(project_name: str):
     _ensure_cache_loaded()
+    if not project_name:
+        return 0.0, 0.0
+
     normalized_name = normalize_project_name(project_name)
     project = CACHE["project_map"].get(normalized_name)
     if project:
         return parse_float(project.get("TL Price")), parse_float(project.get("ED Price"))
+
+    tl_price, ed_price = get_project_prices_from_sheet(project_name)
+    if tl_price != 0.0 or ed_price != 0.0:
+        _cache_update_project_pricing(project_name, tl_price, ed_price)
+    return tl_price, ed_price
+
+
+def get_project_prices_from_sheet(project_name: str):
+    normalized_input = normalize_project_name(project_name)
+    client = get_sheet_client()
+    sheet = client.open_by_key(SHEET_ID).worksheet("Projects")
+    records = sheet.get_all_records()
+
+    for row in records:
+        row_project_name = str(get_row_value(row, "Project Name") or "").strip()
+        if normalize_project_name(row_project_name) == normalized_input:
+            return parse_float(get_row_value(row, "TL Price", "TL") or 0), parse_float(get_row_value(row, "ED Price", "ED") or 0)
+
+    for row in records:
+        row_project_name = str(get_row_value(row, "Project Name") or "").strip()
+        normalized_row_name = normalize_project_name(row_project_name)
+        if normalized_input in normalized_row_name or normalized_row_name in normalized_input:
+            return parse_float(get_row_value(row, "TL Price", "TL") or 0), parse_float(get_row_value(row, "ED Price", "ED") or 0)
+
     return 0.0, 0.0
 
 
@@ -394,14 +452,19 @@ def async_record_payment(user, amount: float):
 
 
 def upsert_project_pricing(project_name: str, tl_price: float, ed_price: float):
+    normalized_input = normalize_project_name(project_name)
+    tl_price = parse_float(tl_price)
+    ed_price = parse_float(ed_price)
+
     client = get_sheet_client()
     sheet = client.open_by_key(SHEET_ID).worksheet("Projects")
     records = sheet.get_all_records()
     for i, row in enumerate(records):
-        if str(row["Project Name"]).strip() == project_name.strip():
+        row_project_name = str(get_row_value(row, "Project Name") or "").strip()
+        if normalize_project_name(row_project_name) == normalized_input:
             sheet.update(f"B{i+2}:C{i+2}", [[tl_price, ed_price]])
             return
-    sheet.append_row([project_name, tl_price, ed_price])
+    sheet.append_row([project_name.strip(), tl_price, ed_price])
 
 
 def find_member_row(members_sheet, user_id: str):
