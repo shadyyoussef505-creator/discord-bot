@@ -34,7 +34,7 @@ class ChapterView(discord.ui.View):
         await interaction.message.edit(embed=self.embed)
         await interaction.response.send_message(f"✅ تم تسجيلك كـ {field_name} لهذا الفصل", ephemeral=True)
 
-    @discord.ui.button(label="Claim TL", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Claim TL", style=discord.ButtonStyle.primary, custom_id="chapter_claim_tl")
     async def claim_tl(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             await self.claim(interaction, "Translator")
@@ -44,7 +44,7 @@ class ChapterView(discord.ui.View):
             except Exception:
                 pass
 
-    @discord.ui.button(label="Claim ED", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="Claim ED", style=discord.ButtonStyle.success, custom_id="chapter_claim_ed")
     async def claim_ed(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             await self.claim(interaction, "Editor")
