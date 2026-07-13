@@ -17,6 +17,13 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
+def is_admin(interaction: discord.Interaction) -> bool:
+    admin_role = interaction.guild.get_role(ADMIN_ROLE_ID)
+    if admin_role is None:
+        return False
+    return admin_role in interaction.user.roles
+
+
 @bot.event
 async def on_ready():
     print(f"البوت شغال باسم: {bot.user}")
