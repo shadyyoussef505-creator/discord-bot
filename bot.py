@@ -143,7 +143,7 @@ async def add_chapter(interaction: discord.Interaction, chapter_number: str, pro
     except Exception:
         expected_chapter = None
 
-    if expected_chapter is not None:
+    if expected_chapter is not None and not is_admin(interaction):
         digits = "".join(ch for ch in str(chapter_number) if ch.isdigit())
         provided_chapter = int(digits) if digits else None
         if provided_chapter != expected_chapter:
