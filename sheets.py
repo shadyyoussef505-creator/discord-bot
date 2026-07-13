@@ -760,8 +760,12 @@ def get_series_for_user(user):
     return sorted(projects)
 
 
-def get_top_members(limit: int = 10) -> list:
-    """بترجع توب X أعضاء مرتبين بالـ Unpaid Balance من الأعلى للأقل."""
+def get_top_members(limit: int = 10):
+    """
+    بترجع tuple: (all_members, top_members)
+    all_members: كل الأعضاء مرتبين بالـ Unpaid Balance
+    top_members: أول X منهم بس
+    """
     _ensure_cache_loaded()
     members = list(CACHE["members"].values())
     members_with_balance = [
@@ -773,7 +777,7 @@ def get_top_members(limit: int = 10) -> list:
         key=lambda m: parse_float(m.get("Unpaid Balance", 0) or 0),
         reverse=True
     )
-    return sorted_members[:limit]
+    return sorted_members, sorted_members[:limit]
 
 
 def save_claim(project_name: str, chapter_number: str, user, role: str):
