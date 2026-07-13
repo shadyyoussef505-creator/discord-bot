@@ -230,6 +230,73 @@ def find_project_by_channel_name(channel_name: str):
     return None
 
 
+def get_all_project_names():
+    """بترجع أسماء كل المشاريع الموجودة في شيت Projects (لاستخدام Autocomplete)."""
+    _ensure_cache_loaded()
+    return [str(row.get("Project Name", "")).strip() for row in CACHE["projects"] if row.get("Project Name")]
+
+
+def get_next_chapter_number(project_name: str) -> int:
+    """
+    بترجع رقم الفصل التالي المتوقع لمشروع معين = آخر رقم اتسجل له في شيت Log + 1.
+    لو المشروع لسه معندوش أي فصل مسجل، بترجع 1.
+    """
+    normalized_input = normalize_project_name(project_name)
+    client = get_sheet_client()
+    sheet = client.open_by_key(SHEET_ID).worksheet("Log")
+    records = sheet.get_all_records()
+
+    max_chapter = 0
+    for row in records:
+        row_project_name = str(get_row_value(row, "Project Name", "Project") or "").strip()
+        if normalize_project_name(row_project_name) != normalized_input:
+            continue
+        chapter_raw = get_row_value(row, "Chapter", "Chapter Number") or ""
+        digits = re.sub(r"\D", "", str(chapter_raw))
+        if digits:
+            max_chapter = max(max_chapter, int(digits))
+
+    return max_chapter + 1
+
+
+def get_project_card_location(project_name: str):
+    """بترجع (channel_id, message_id) بتاعت بطاقة /project المحفوظة، أو (None, None) لو مش موجودة."""
+    _ensure_cache_loaded()
+    normalized_name = normalize_project_name(project_name)
+    project = CACHE["project_map"].get(normalized_name)
+    if not project:
+        return None, None
+    channel_id = normalize_discord_id(project.get("Card Channel ID"))
+    message_id = normalize_discord_id(project.get("Card Message ID"))
+    return channel_id, message_id
+
+
+def save_project_card_location(project_name: str, channel_id: int, message_id: int):
+    normalized_input = normalize_project_name(project_name)
+    client = get_sheet_client()
+    sheet = client.open_by_key(SHEET_ID).worksheet("Projects")
+    records = sheet.get_all_records()
+    for i, row in enumerate(records):
+        row_project_name = str(get_row_value(row, "Project Name") or "").strip()
+        if normalize_project_name(row_project_name) == normalized_input:
+            sheet.update(f"D{i+2}:E{i+2}", [[str(channel_id), str(message_id)]])
+            return
+    sheet.append_row([project_name.strip(), 0, 0, str(channel_id), str(message_id)])
+
+
+def _cache_save_project_card_location(project_name: str, channel_id: int, message_id: int):
+    normalized_name = normalize_project_name(project_name)
+    project = CACHE["project_map"].get(normalized_name)
+    if project:
+        project["Card Channel ID"] = str(channel_id)
+        project["Card Message ID"] = str(message_id)
+
+
+def async_save_project_card_location(project_name: str, channel_id: int, message_id: int):
+    _cache_save_project_card_location(project_name, channel_id, message_id)
+    _spawn_background(save_project_card_location, project_name, channel_id, message_id)
+
+
 def get_project_prices(project_name: str):
     _ensure_cache_loaded()
     if not project_name:
@@ -557,14 +624,6 @@ def log_chapter_done(project_name: str, chapter_number: str, user, role: str):
             "", "", "", "", "", "", "", "", "", amount, 0
         ])
     return amount
-
-
-def get_member_profile(user, refresh_member: bool = False):
-    if refresh_member:
-        refresh_cache()
-    else:
-        _ensure_cache_loaded()
-    return CACHE["members"].get(str(user.id))
 
 
 def update_member_field(user, field_name: str, value: str):
