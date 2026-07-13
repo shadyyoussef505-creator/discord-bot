@@ -758,3 +758,31 @@ def get_series_for_user(user):
         if str(row["Person"]).strip() == str(user):
             projects.add(row["Project"])
     return sorted(projects)
+def get_user_chapters_for_project(project_name: str, user, role: str) -> list:
+    normalized_input = normalize_project_name(project_name)
+    user_name = str(user)
+    user_id = str(user.id)
+    chapters = []
+
+    client = get_sheet_client()
+    sheet = client.open_by_key(SHEET_ID).worksheet("Log")
+    records = sheet.get_all_records()
+
+    for row in records:
+        row_project = normalize_project_name(str(get_row_value(row, "Project Name", "Project") or ""))
+        row_person = str(get_row_value(row, "Person", "User", "Discord ID") or "").strip()
+        row_role = str(get_row_value(row, "Role") or "").strip().upper()
+
+        if row_project != normalized_input:
+            continue
+        if row_role != role.upper():
+            continue
+        if row_person not in (user_name, user_id):
+            continue
+
+        chapter_raw = get_row_value(row, "Chapter", "Chapter Number") or ""
+        digits = re.sub(r"\D", "", str(chapter_raw))
+        if digits:
+            chapters.append(digits)
+
+    return chapters
