@@ -72,6 +72,7 @@ async def on_ready():
 
 
 @bot.tree.command(name="project", description="عرض بطاقة مشروع")
+@app_commands.default_permissions(manage_guild=True)
 @app_commands.describe(
     name="اسم المشروع",
     tl_price="سعر الفصل للمترجم (مثال: 0.5)",
@@ -82,6 +83,10 @@ async def on_ready():
 )
 async def project(interaction: discord.Interaction, name: str, tl_price: float, ed_price: float,
                    drive_folder: str, drive_sort: str, drive_raw: str):
+    if not is_admin(interaction):
+        await interaction.response.send_message("❌ الأمر ده مخصص للأدمن بس.", ephemeral=True)
+        return
+
     await interaction.response.defer()
 
     try:
@@ -116,6 +121,7 @@ async def project(interaction: discord.Interaction, name: str, tl_price: float, 
 
 
 @bot.tree.command(name="add_chapter", description="نشر فصل جديد")
+@app_commands.default_permissions(manage_guild=True)
 @app_commands.describe(
     project_name="اسم المشروع (اختياري؛ يتم التعرف عليه تلقائياً من اسم القناة إذا تركته فارغًا)",
     chapter_number="رقم الفصل",
@@ -123,6 +129,10 @@ async def project(interaction: discord.Interaction, name: str, tl_price: float, 
 )
 @app_commands.autocomplete(project_name=project_name_autocomplete)
 async def add_chapter(interaction: discord.Interaction, chapter_number: str, project_name: str = None, mention: discord.Role = None):
+    if not is_admin(interaction):
+        await interaction.response.send_message("❌ الأمر ده مخصص للأدمن بس.", ephemeral=True)
+        return
+
     auto_detected = False
     if project_name is None or str(project_name).strip() == "":
         channel_name = getattr(interaction.channel, "name", "") or ""
