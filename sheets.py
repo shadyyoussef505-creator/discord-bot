@@ -559,8 +559,11 @@ def log_chapter_done(project_name: str, chapter_number: str, user, role: str):
     return amount
 
 
-def get_member_profile(user):
-    _ensure_cache_loaded()
+def get_member_profile(user, refresh_member: bool = False):
+    if refresh_member:
+        refresh_cache()
+    else:
+        _ensure_cache_loaded()
     return CACHE["members"].get(str(user.id))
 
 
