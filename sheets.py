@@ -501,6 +501,7 @@ def _cache_update_member_field(user, field_name: str, value: str):
             "TL Chapters": 0,
             "ED Chapters": 0,
             "Unpaid Balance": 0,
+            "Join Date": datetime.now().strftime("%Y-%m-%d"),
             field_name: value,
             "Total Earned": 0,
             "Paid Out": 0,
@@ -680,7 +681,8 @@ def update_member_field(user, field_name: str, value: str):
     if row_index:
         members_sheet.update(f"{col_letter}{row_index}", [[value]])
     else:
-        new_row = [str(user.id), str(user), 0, 0, 0, "", "", "", "", "", "", "", "", "", 0, 0]
+        today = datetime.now().strftime("%Y-%m-%d")
+        new_row = [str(user.id), str(user), 0, 0, 0, "", "", "", "", "", "", "", today, "", 0, 0]
         field_order = ["Discord ID", "Name", "TL Chapters", "ED Chapters", "Unpaid Balance",
                        "Payment", "Email", "Country", "Age", "Gender",
                        "Display Name", "Staff Role", "Join Date", "Other Scans", "Total Earned", "Paid Out"]
@@ -691,6 +693,19 @@ def update_member_field(user, field_name: str, value: str):
 def is_gender_locked(user) -> bool:
     data = get_member_profile(user)
     return bool(data and str(data.get("Gender", "")).strip())
+
+
+def is_role_locked(user) -> bool:
+    data = get_member_profile(user)
+    return bool(data and str(data.get("Staff Role", "")).strip())
+
+
+def ensure_join_date(user):
+    """بتسجل تاريخ الانضمام أول مرة بس لو مش متسجل قبل كده."""
+    data = get_member_profile(user)
+    if data and not str(data.get("Join Date", "")).strip():
+        today = datetime.now().strftime("%Y-%m-%d")
+        async_update_member_field(user, "Join Date", today)
 
 
 def record_payment(user, amount: float):
