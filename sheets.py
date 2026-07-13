@@ -760,6 +760,22 @@ def get_series_for_user(user):
     return sorted(projects)
 
 
+def get_top_members(limit: int = 10) -> list:
+    """بترجع توب X أعضاء مرتبين بالـ Unpaid Balance من الأعلى للأقل."""
+    _ensure_cache_loaded()
+    members = list(CACHE["members"].values())
+    members_with_balance = [
+        m for m in members
+        if parse_float(m.get("Unpaid Balance", 0) or 0) > 0
+    ]
+    sorted_members = sorted(
+        members_with_balance,
+        key=lambda m: parse_float(m.get("Unpaid Balance", 0) or 0),
+        reverse=True
+    )
+    return sorted_members[:limit]
+
+
 def save_claim(project_name: str, chapter_number: str, user, role: str):
     """بتسجل الـ claim في شيت Claims."""
     client = get_sheet_client()
