@@ -297,6 +297,46 @@ def async_save_project_card_location(project_name: str, channel_id: int, message
     _spawn_background(save_project_card_location, project_name, channel_id, message_id)
 
 
+def set_project_team_member(project_name: str, field_name: str, discord_id: int):
+    """
+    بتحفظ TL/ED المعين على مشروع في شيت Projects.
+    field_name: 'TL' أو 'ED'
+    """
+    column_map = {"TL": "F", "ED": "G", "PR": "H"}
+    col_letter = column_map.get(field_name)
+    if not col_letter:
+        return
+
+    normalized_input = normalize_project_name(project_name)
+    client = get_sheet_client()
+    sheet = client.open_by_key(SHEET_ID).worksheet("Projects")
+    records = sheet.get_all_records()
+    for i, row in enumerate(records):
+        row_project_name = str(get_row_value(row, "Project Name") or "").strip()
+        if normalize_project_name(row_project_name) == normalized_input:
+            sheet.update(f"{col_letter}{i+2}", [[str(discord_id)]])
+            return
+    new_row = [project_name.strip(), 0, 0, "", ""]
+    new_row_map = {"TL": 5, "ED": 6, "PR": 7}
+    while len(new_row) <= new_row_map[field_name]:
+        new_row.append("")
+    new_row[new_row_map[field_name]] = str(discord_id)
+    sheet.append_row(new_row)
+
+
+def _cache_set_project_team_member(project_name: str, field_name: str, discord_id: int):
+    normalized_name = normalize_project_name(project_name)
+    project = CACHE["project_map"].get(normalized_name)
+    key_map = {"TL": "TL Discord ID", "ED": "ED Discord ID", "PR": "PR Discord ID"}
+    if project:
+        project[key_map[field_name]] = str(discord_id)
+
+
+def async_set_project_team_member(project_name: str, field_name: str, discord_id: int):
+    _cache_set_project_team_member(project_name, field_name, discord_id)
+    _spawn_background(set_project_team_member, project_name, field_name, discord_id)
+
+
 def get_project_prices(project_name: str):
     _ensure_cache_loaded()
     if not project_name:
