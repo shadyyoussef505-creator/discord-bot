@@ -361,7 +361,7 @@ def async_update_member_field(user, field_name: str, value: str):
     _spawn_background(update_member_field, user, field_name, value)
 
 
-def async_upsert_project_pricing(project_name: str, tl_price: float, ed_price: float):
+async def async_upsert_project_pricing(project_name: str, tl_price: float, ed_price: float):
     _cache_update_project_pricing(project_name, tl_price, ed_price)
     _spawn_background(upsert_project_pricing, project_name, tl_price, ed_price)
 
