@@ -177,19 +177,16 @@ class DoneModal(discord.ui.Modal):
             )
             return
 
-    chapter_digits = re.sub(r"\D", "", str(self.chapter_number))
-    if chapter_digits not in user_chapters:
-        chapters_list = ", ".join(sorted(user_chapters, key=lambda x: int(x)))
-        await interaction.followup.send(
-            f"❌ الفصل **{self.chapter_number}** مش بتاعك.\n"
-            f"الفصول المسجّلة عندك في **{self.project_name}**: **{chapters_list}**",
-            ephemeral=True
-        )
-        return
+        chapter_digits = re.sub(r"\D", "", str(self.chapter_number))
+        if chapter_digits not in user_chapters:
+            chapters_list = ", ".join(sorted(user_chapters, key=lambda x: int(x)))
+            await interaction.followup.send(
+                f"❌ الفصل **{self.chapter_number}** مش بتاعك.\n"
+                f"الفصول المسجّلة عندك في **{self.project_name}**: **{chapters_list}**",
+                ephemeral=True
+            )
+            return
 
-    try:
-        amount = async_log_chapter_done(self.project_name, self.chapter_number, interaction.user, self.role_type)
-        
         try:
             amount = async_log_chapter_done(self.project_name, self.chapter_number, interaction.user, self.role_type)
         except Exception as e:
@@ -207,16 +204,6 @@ class DoneModal(discord.ui.Modal):
             )
 
         if self.role_type == "TL":
-            embed = discord.Embed(
-                title="✅ Translation Done!",
-                description=f"**{self.project_name}** • Chapter {self.chapter_number}",
-                color=discord.Color.blue()
-            )
-            embed.add_field(name="🎙️ Translator", value=interaction.user.mention, inline=True)
-            embed.add_field(name="🔗 Link", value=link_display, inline=False)
-            embed.add_field(name="💰 Amount", value=f"${amount:.2f}", inline=True)
-            embed.set_footer(text="Ready for editing")
-
             editor_role = interaction.guild.get_role(EDITOR_ROLE_ID)
             mention_text = editor_role.mention if editor_role else "@Editors"
             embed = discord.Embed(
