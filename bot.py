@@ -36,6 +36,8 @@ def is_admin(interaction: discord.Interaction) -> bool:
 
 @bot.event
 async def on_ready():
+    bot.add_view(ProjectView(discord.Embed(), {}))
+    bot.add_view(ChapterView(discord.Embed()))
     print(f"البوت شغال باسم: {bot.user}")
     try:
         synced = await bot.tree.sync()
