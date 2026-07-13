@@ -6,6 +6,14 @@ from oauth2client.service_account import ServiceAccountCredentials
 from config import SHEET_ID
 
 
+def fix_url(url: str) -> str:
+    if not url:
+        return None
+    if not url.startswith("http://") and not url.startswith("https://"):
+        return None
+    return url
+
+
 def get_sheet_client():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     creds_json = json.loads(os.getenv("GOOGLE_CREDENTIALS"))
