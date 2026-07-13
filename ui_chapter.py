@@ -2,7 +2,7 @@ import re
 import discord
 from datetime import datetime
 from config import ADMIN_ROLE_ID, EDITOR_ROLE_ID, LOGS_CHANNEL_ID
-from sheets import async_log_chapter_done, fix_url, get_project_team_discord_ids, get_project_card_location
+from sheets import async_log_chapter_done, fix_url, get_project_team_discord_ids, get_project_card_location, async_save_claim, check_user_claim
 
 
 def _is_undefined_member_value(value) -> bool:
@@ -21,7 +21,18 @@ class ChapterView(discord.ui.View):
         super().__init__(timeout=None)
         self.embed = embed
 
-    async def claim(self, interaction: discord.Interaction, field_name: str):
+    async def claim(self, interaction: discord.Interaction, field_name: str, role: str):
+        # استخرج اسم المشروع ورقم الفصل من الـ embed
+        description = self.embed.description or ""
+        # الـ description شكله: "**project_name** • Chapter X"
+        project_name = ""
+        chapter_number = ""
+        if "•" in description:
+            parts = description.split("•")
+            project_name = parts[0].replace("**", "").strip()
+            chapter_part = parts[1].strip()
+            chapter_number = re.sub(r"\D", "", chapter_part)
+
         for i, field in enumerate(self.embed.fields):
             if field.name.endswith(field_name):
                 current_value = field.value
@@ -32,13 +43,22 @@ class ChapterView(discord.ui.View):
                     return
                 self.embed.set_field_at(i, name=field.name, value=interaction.user.mention, inline=field.inline)
                 break
+
         await interaction.message.edit(embed=self.embed)
+
+        # سجل الـ claim في شيت Claims
+        if project_name and chapter_number:
+            try:
+                async_save_claim(project_name, chapter_number, interaction.user, role)
+            except Exception:
+                pass
+
         await interaction.response.send_message(f"✅ تم تسجيلك كـ {field_name} لهذا الفصل", ephemeral=True)
 
     @discord.ui.button(label="Claim TL", style=discord.ButtonStyle.primary, custom_id="chapter_claim_tl")
     async def claim_tl(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            await self.claim(interaction, "Translator")
+            await self.claim(interaction, "Translator", "TL")
         except Exception:
             try:
                 await interaction.response.send_message("❌ حدث خطأ أثناء محاولة المطالبة بـ TL. حاول مرة أخرى.", ephemeral=True)
@@ -48,7 +68,7 @@ class ChapterView(discord.ui.View):
     @discord.ui.button(label="Claim ED", style=discord.ButtonStyle.success, custom_id="chapter_claim_ed")
     async def claim_ed(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            await self.claim(interaction, "Editor")
+            await self.claim(interaction, "Editor", "ED")
         except Exception:
             try:
                 await interaction.response.send_message("❌ حدث خطأ أثناء محاولة المطالبة بـ ED. حاول مرة أخرى.", ephemeral=True)
@@ -166,23 +186,12 @@ class DoneModal(discord.ui.Modal):
         link_value = fix_url(self.link_input.value) if self.link_input.value else None
         link_display = link_value if link_value else "— No link provided —"
 
-        # ✅ Validation
-        from sheets import get_user_chapters_for_project
-        user_chapters = get_user_chapters_for_project(self.project_name, interaction.user, self.role_type)
-
-        if not user_chapters:
+        # ✅ Validation — تحقق من شيت Claims
+        has_claim = check_user_claim(self.project_name, self.chapter_number, interaction.user, self.role_type)
+        if not has_claim:
             await interaction.followup.send(
-                f"❌ مش لاقيك عندك أي فصول مسجّلة كـ **{self.role_type}** في مشروع **{self.project_name}**.",
-                ephemeral=True
-            )
-            return
-
-        chapter_digits = re.sub(r"\D", "", str(self.chapter_number))
-        if chapter_digits not in user_chapters:
-            chapters_list = ", ".join(sorted(user_chapters, key=lambda x: int(x)))
-            await interaction.followup.send(
-                f"❌ الفصل **{self.chapter_number}** مش بتاعك.\n"
-                f"الفصول المسجّلة عندك في **{self.project_name}**: **{chapters_list}**",
+                f"❌ مش لاقيك عملت claim للفصل **{self.chapter_number}** كـ **{self.role_type}** في مشروع **{self.project_name}**.\n"
+                f"لازم تضغط **Claim {self.role_type}** الأول.",
                 ephemeral=True
             )
             return
