@@ -4,6 +4,17 @@ from config import ADMIN_ROLE_ID, EDITOR_ROLE_ID, LOGS_CHANNEL_ID
 from sheets import async_log_chapter_done, fix_url, get_project_team_discord_ids
 
 
+def _is_undefined_member_value(value) -> bool:
+    if value is None:
+        return True
+    text = str(value).strip()
+    return not text or text.lower() in {"غير محدد", "undefined", "none", "n/a", "-", "— not claimed —"}
+
+
+def _format_mention(member_id):
+    return f"<@{member_id}>" if member_id else None
+
+
 class ChapterView(discord.ui.View):
     def __init__(self, embed: discord.Embed):
         super().__init__(timeout=None)
@@ -72,14 +83,21 @@ class AddChapterModal(discord.ui.Modal, title="تفاصيل الفصل"):
         embed.add_field(name="📝 Note", value=note_display, inline=True)
         embed.set_footer(text=f"{self.project_name} • Chapter Panel")
 
-        tl_id, ed_id = get_project_team_discord_ids(self.project_name)
+        tl_id, ed_id = None, None
+        try:
+            tl_id, ed_id = get_project_team_discord_ids(self.project_name)
+        except Exception:
+            tl_id, ed_id = None, None
+
         mentions = []
         if self.mention:
             mentions.append(self.mention.mention)
-        if tl_id:
-            mentions.append(f"<@{tl_id}>")
-        if ed_id:
-            mentions.append(f"<@{ed_id}>")
+        tl_mention = _format_mention(tl_id)
+        ed_mention = _format_mention(ed_id)
+        if tl_mention:
+            mentions.append(tl_mention)
+        if ed_mention:
+            mentions.append(ed_mention)
 
         mention_text = " ".join(mentions).strip()
         if mention_text:
@@ -110,6 +128,10 @@ class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
             amount = async_log_chapter_done(self.project_name, self.chapter_number, interaction.user, self.role_type)
         except Exception as e:
             await interaction.followup.send(f"❌ حصل خطأ أثناء التسجيل في الشيت: {e}")
+            return
+
+        if amount is None:
+            await interaction.followup.send("❌ لم يتم العثور على السعر الصحيح للمشروع. تأكد من إعداد المشروع في الشيت.")
             return
 
         if self.auto_detected:

@@ -107,12 +107,19 @@ def get_row_value(row, *keys):
     return None
 
 
+def _is_undefined_text(value) -> bool:
+    if value is None:
+        return True
+    text = str(value).strip()
+    if not text:
+        return True
+    return text.lower() in {"غير محدد", "undefined", "none", "n/a", "-", "— not claimed —"}
+
+
 def normalize_discord_id(value):
-    if not value:
+    if _is_undefined_text(value):
         return None
     text = str(value).strip()
-    if text == "غير محدد":
-        return None
     mention_match = re.search(r"<@!?(\d+)>", text)
     if mention_match:
         return int(mention_match.group(1))

@@ -149,29 +149,34 @@ class UserSelectView(discord.ui.View):
 
     @discord.ui.select(cls=discord.ui.UserSelect, placeholder="اختار العضو")
     async def select_user(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
-        chosen_user = select.values[0]
-        for i, field in enumerate(self.embed.fields):
-            if field.name == self.field_name:
-                self.embed.set_field_at(i, name=self.field_name, value=chosen_user.mention, inline=field.inline)
-                break
-        await self.message.edit(embed=self.embed)
-        await interaction.response.send_message(
-            f"تم تحديث {self.field_name} إلى {chosen_user.mention} ✅", ephemeral=True
-        )
-
         try:
-            embed = discord.Embed(
-                title="✏️ تم تعديل الفريق في مشروع",
-                description=f"{self.field_name} تم تحديثه إلى {chosen_user.mention}.",
-                color=discord.Color.green(),
-                timestamp=discord.utils.utcnow()
+            chosen_user = select.values[0]
+            for i, field in enumerate(self.embed.fields):
+                if field.name == self.field_name:
+                    self.embed.set_field_at(i, name=self.field_name, value=chosen_user.mention, inline=field.inline)
+                    break
+            await self.message.edit(embed=self.embed)
+            await interaction.response.send_message(
+                f"تم تحديث {self.field_name} إلى {chosen_user.mention} ✅", ephemeral=True
             )
-            embed.add_field(name="الدور", value=self.field_name, inline=True)
-            embed.add_field(name="العضو", value=chosen_user.mention, inline=True)
-            embed.add_field(name="المشروع", value=self.embed.title.replace("📖", "").strip(), inline=False)
-            await safe_send_logs_channel(interaction, embed)
+
+            try:
+                embed = discord.Embed(
+                    title="✏️ تم تعديل الفريق في مشروع",
+                    description=f"{self.field_name} تم تحديثه إلى {chosen_user.mention}.",
+                    color=discord.Color.green(),
+                    timestamp=discord.utils.utcnow()
+                )
+                embed.add_field(name="الدور", value=self.field_name, inline=True)
+                embed.add_field(name="العضو", value=chosen_user.mention, inline=True)
+                embed.add_field(name="المشروع", value=self.embed.title.replace("📖", "").strip(), inline=False)
+                await safe_send_logs_channel(interaction, embed)
+            except Exception:
+                pass
         except Exception:
-            pass
+            await interaction.response.send_message(
+                "❌ حدث خطأ أثناء تحديث العضو. حاول مرة أخرى.", ephemeral=True
+            )
 
 
 class ProjectView(discord.ui.View):
@@ -193,29 +198,44 @@ class ProjectView(discord.ui.View):
 
     @discord.ui.button(label="Change TL", style=discord.ButtonStyle.primary, row=0)
     async def change_tl(self, interaction: discord.Interaction, button: discord.ui.Button):
-        view = UserSelectView("TL", self.embed, interaction.message)
-        await interaction.response.send_message("اختار الـ TL الجديد:", view=view, ephemeral=True)
+        try:
+            view = UserSelectView("TL", self.embed, interaction.message)
+            await interaction.response.send_message("اختار الـ TL الجديد:", view=view, ephemeral=True)
+        except Exception:
+            await interaction.response.send_message("❌ فشل تغيير TL، حاول مرة أخرى.", ephemeral=True)
 
     @discord.ui.button(label="Change ED", style=discord.ButtonStyle.primary, row=0)
     async def change_ed(self, interaction: discord.Interaction, button: discord.ui.Button):
-        view = UserSelectView("ED", self.embed, interaction.message)
-        await interaction.response.send_message("اختار الـ ED الجديد:", view=view, ephemeral=True)
+        try:
+            view = UserSelectView("ED", self.embed, interaction.message)
+            await interaction.response.send_message("اختار الـ ED الجديد:", view=view, ephemeral=True)
+        except Exception:
+            await interaction.response.send_message("❌ فشل تغيير ED، حاول مرة أخرى.", ephemeral=True)
 
     @discord.ui.button(label="Add PR", style=discord.ButtonStyle.success, row=0)
     async def add_pr(self, interaction: discord.Interaction, button: discord.ui.Button):
-        view = UserSelectView("PR", self.embed, interaction.message)
-        await interaction.response.send_message("اختار الـ PR الجديد:", view=view, ephemeral=True)
+        try:
+            view = UserSelectView("PR", self.embed, interaction.message)
+            await interaction.response.send_message("اختار الـ PR الجديد:", view=view, ephemeral=True)
+        except Exception:
+            await interaction.response.send_message("❌ فشل إضافة PR، حاول مرة أخرى.", ephemeral=True)
 
     @discord.ui.button(label="Edit Pricing", style=discord.ButtonStyle.secondary, row=1)
     async def edit_pricing(self, interaction: discord.Interaction, button: discord.ui.Button):
-        project_name = self.embed.title.replace("📖", "").strip()
-        modal = PricingEditModal(project_name, self.embed, interaction.message)
-        await interaction.response.send_modal(modal)
+        try:
+            project_name = self.embed.title.replace("📖", "").strip()
+            modal = PricingEditModal(project_name, self.embed, interaction.message)
+            await interaction.response.send_modal(modal)
+        except Exception:
+            await interaction.response.send_message("❌ فشل فتح نافذة تعديل السعر، حاول مرة أخرى.", ephemeral=True)
 
     @discord.ui.button(label="Edit Status", style=discord.ButtonStyle.secondary, row=1)
     async def edit_status(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = TextEditModal("الحالة", self.embed, interaction.message, placeholder="مثال: 🟢 Active")
-        await interaction.response.send_modal(modal)
+        try:
+            modal = TextEditModal("الحالة", self.embed, interaction.message, placeholder="مثال: 🟢 Active")
+            await interaction.response.send_modal(modal)
+        except Exception:
+            await interaction.response.send_message("❌ فشل فتح نافذة تعديل الحالة، حاول مرة أخرى.", ephemeral=True)
 
     @discord.ui.button(label="Edit Details", style=discord.ButtonStyle.secondary, row=1)
     async def edit_details(self, interaction: discord.Interaction, button: discord.ui.Button):
