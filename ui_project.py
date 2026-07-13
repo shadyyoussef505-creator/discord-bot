@@ -107,7 +107,7 @@ class PricingEditModal(discord.ui.Modal, title="تعديل السعر"):
 
         await interaction.response.defer(ephemeral=True)
         try:
-            async_upsert_project_pricing(self.project_name, tl_price, ed_price)
+             await async_upsert_project_pricing(self.project_name, tl_price, ed_price)
         except Exception as e:
             await interaction.followup.send(f"❌ حصل خطأ أثناء تحديث الشيت: {e}", ephemeral=True)
             return
