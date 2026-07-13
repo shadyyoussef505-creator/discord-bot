@@ -16,6 +16,18 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 SHEET_ID = "1QG4besel9w7nFkwceD21SpwCpFRbXyQHB6GCRyCstDQ"
 
+# ---------------- Role IDs (لازم تستبدلهم بالـ IDs الحقيقية بتاعت السيرفر عندك) ----------------
+EDITOR_ROLE_ID = 123456789012345678
+ADMIN_ROLE_ID = 123456789012345678
+
+
+def is_admin(interaction: discord.Interaction) -> bool:
+    """بترجع True لو العضو عنده رول الأدمن."""
+    admin_role = interaction.guild.get_role(ADMIN_ROLE_ID)
+    if admin_role is None:
+        return False
+    return admin_role in interaction.user.roles
+
 
 def fix_url(url: str) -> str:
     if not url:
@@ -92,20 +104,32 @@ def log_chapter_done(project_name: str, chapter_number: str, user: discord.User,
     if row_index:
         current_tl = int(existing_row.get("TL Chapters", 0) or 0)
         current_ed = int(existing_row.get("ED Chapters", 0) or 0)
-        current_balance = float(existing_row.get("Unpaid Balance", 0) or 0)
+        current_total_earned = float(existing_row.get("Total Earned", 0) or 0)
+        current_paid_out = float(existing_row.get("Paid Out", 0) or 0)
 
         if role == "TL":
             current_tl += 1
         else:
             current_ed += 1
-        current_balance += amount
+        current_total_earned += amount
+        new_unpaid = current_total_earned - current_paid_out
 
-        members_sheet.update(f"C{row_index}:E{row_index}", [[current_tl, current_ed, current_balance]])
+        # C: TL Chapters | D: ED Chapters | E: Unpaid Balance | ... | O: Total Earned | P: Paid Out
+        members_sheet.update(f"C{row_index}:E{row_index}", [[current_tl, current_ed, new_unpaid]])
+        members_sheet.update(f"O{row_index}:P{row_index}", [[current_total_earned, current_paid_out]])
     else:
         new_tl = 1 if role == "TL" else 0
         new_ed = 1 if role == "ED" else 0
-        # ملحوظة: الصف بقى فيه 10 أعمدة بدل 5 عشان نظام البروفايل الجديد
-        members_sheet.append_row([user_id_str, str(user), new_tl, new_ed, amount, "", "", "", "", ""])
+        # ترتيب الأعمدة الفعلي في الشيت:
+        # A Discord ID | B Name | C TL Chapters | D ED Chapters | E Unpaid Balance | F Payment
+        # G Email | H Country | I Age | J Gender | K Display Name | L Staff Role
+        # M Join Date | N Other Scans | O Total Earned | P Paid Out
+        members_sheet.append_row([
+            user_id_str, str(user), new_tl, new_ed, amount,
+            "", "", "", "", "",        # F..J: Payment, Email, Country, Age, Gender
+            "", "", "", "",             # K..N: Display Name, Staff Role, Join Date, Other Scans
+            amount, 0                   # O: Total Earned | P: Paid Out
+        ])
 
     return amount
 
@@ -126,9 +150,11 @@ def update_member_field(user: discord.User, field_name: str, value: str):
     بتحدث حقل واحد بس (زي Payment أو Email) في صف العضو.
     لو العضو مش موجود في الشيت، بتضيفله صف جديد.
 
-    ترتيب الأعمدة المتوقع في شيت Members:
-    A: Discord ID | B: Discord Name | C: TL Chapters | D: ED Chapters
-    E: Unpaid Balance | F: Payment | G: Email | H: Country | I: Age | J: Gender
+    ترتيب الأعمدة الفعلي في شيت Members:
+    A: Discord ID | B: Name | C: TL Chapters | D: ED Chapters | E: Unpaid Balance
+    F: Payment | G: Email | H: Country | I: Age | J: Gender
+    K: Display Name | L: Staff Role | M: Join Date | N: Other Scans
+    O: Total Earned | P: Paid Out
     """
     client = get_sheet_client()
     members_sheet = client.open_by_key(SHEET_ID).worksheet("Members")
@@ -141,15 +167,21 @@ def update_member_field(user: discord.User, field_name: str, value: str):
         "Country": "H",
         "Age": "I",
         "Gender": "J",
+        "Display Name": "K",
+        "Staff Role": "L",
+        "Join Date": "M",
+        "Other Scans": "N",
     }
     col_letter = column_map[field_name]
 
     if row_index:
         members_sheet.update(f"{col_letter}{row_index}", [[value]])
     else:
-        new_row = [user_id_str, str(user), 0, 0, 0, "", "", "", "", ""]
-        field_order = ["Discord ID", "Discord Name", "TL Chapters", "ED Chapters",
-                        "Unpaid Balance", "Payment", "Email", "Country", "Age", "Gender"]
+        new_row = [user_id_str, str(user), 0, 0, 0, "", "", "", "", "", "", "", "", "", 0, 0]
+        field_order = ["Discord ID", "Name", "TL Chapters", "ED Chapters",
+                        "Unpaid Balance", "Payment", "Email", "Country", "Age", "Gender",
+                        "Display Name", "Staff Role", "Join Date", "Other Scans",
+                        "Total Earned", "Paid Out"]
         idx = field_order.index(field_name)
         new_row[idx] = value
         members_sheet.append_row(new_row)
@@ -161,6 +193,30 @@ def is_gender_locked(user: discord.User) -> bool:
     if data and str(data.get("Gender", "")).strip():
         return True
     return False
+
+
+def record_payment(user: discord.User, amount: float):
+    """
+    بتسجل مبلغ اتدفع للعضو: بتزود Paid Out وبتقلل Unpaid Balance تلقائيًا.
+    """
+    client = get_sheet_client()
+    members_sheet = client.open_by_key(SHEET_ID).worksheet("Members")
+    user_id_str = str(user.id)
+    row_index, existing_row = find_member_row(members_sheet, user_id_str)
+
+    if not row_index:
+        raise ValueError("العضو ده لسه معندوش أي رصيد مسجل في الشيت.")
+
+    current_total_earned = float(existing_row.get("Total Earned", 0) or 0)
+    current_paid_out = float(existing_row.get("Paid Out", 0) or 0)
+
+    new_paid_out = current_paid_out + amount
+    new_unpaid = current_total_earned - new_paid_out
+
+    members_sheet.update(f"E{row_index}", [[new_unpaid]])
+    members_sheet.update(f"P{row_index}", [[new_paid_out]])
+
+    return new_unpaid
 
 
 class ProfileFieldModal(discord.ui.Modal):
@@ -210,6 +266,50 @@ class GenderSelectView(discord.ui.View):
             f"🔒 الحقل ده اتقفل دلوقتي، لو عايز تغيره لازم تتواصل مع أدمن.",
             ephemeral=True
         )
+
+
+class PaymentAmountModal(discord.ui.Modal, title="تسجيل دفعة"):
+    amount_input = discord.ui.TextInput(label="المبلغ المدفوع ($)", placeholder="مثال: 5", required=True)
+
+    def __init__(self, target_user: discord.User):
+        super().__init__()
+        self.target_user = target_user
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            amount = float(self.amount_input.value)
+        except ValueError:
+            await interaction.response.send_message("❌ لازم تكتب رقم صحيح للمبلغ.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        try:
+            new_unpaid = record_payment(self.target_user, amount)
+        except Exception as e:
+            print(traceback.format_exc())
+            await interaction.followup.send(f"❌ حصل خطأ أثناء تسجيل الدفعة: {e}", ephemeral=True)
+            return
+
+        await interaction.followup.send(
+            f"✅ تم تسجيل دفعة ${amount:.2f} لـ {self.target_user.mention}\n"
+            f"💰 الرصيد المتبقي عليه دلوقتي: ${new_unpaid:.2f}",
+            ephemeral=True
+        )
+
+
+class AdminProfileView(discord.ui.View):
+    """View مخصص لما الأدمن يشوف بروفايل عضو تاني — فيها زرار الدفع بس."""
+    def __init__(self, target_user: discord.User):
+        super().__init__(timeout=180)
+        self.target_user = target_user
+
+    @discord.ui.button(label="Pay", style=discord.ButtonStyle.success, emoji="💵")
+    async def pay(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not is_admin(interaction):
+            await interaction.response.send_message("❌ الزرار ده مخصص للأدمن بس.", ephemeral=True)
+            return
+        modal = PaymentAmountModal(self.target_user)
+        await interaction.response.send_modal(modal)
 
 
 class ProfileButtonsView(discord.ui.View):
@@ -501,10 +601,7 @@ class AddChapterModal(discord.ui.Modal, title="تفاصيل الفصل"):
             )
 
 
-# ---------------- Role IDs بتاعت /done ----------------
-EDITOR_ROLE_ID = 123456789012345678
-ADMIN_ROLE_ID = 123456789012345678
-
+# ---------------- الجزء بتاع /done ----------------
 
 class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
     link_input = discord.ui.TextInput(
@@ -557,21 +654,6 @@ class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
             admin_role = interaction.guild.get_role(ADMIN_ROLE_ID)
             mention_text = admin_role.mention if admin_role else "@Admins"
             await interaction.followup.send(content=mention_text, embed=embed)
-
-
-@bot.tree.command(name="debug_sheets", description="[مؤقت] عرض أسماء الشيتات اللي البوت شايفها")
-async def debug_sheets(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    try:
-        client = get_sheet_client()
-        spreadsheet = client.open_by_key(SHEET_ID)
-        titles = [f"'{ws.title}' (طول الاسم: {len(ws.title)} حرف)" for ws in spreadsheet.worksheets()]
-        message = "أسماء الشيتات اللي البوت شايفها:\n" + "\n".join(titles)
-        message += f"\n\nعنوان الملف الكامل: {spreadsheet.title}"
-        await interaction.followup.send(f"```{message}```", ephemeral=True)
-    except Exception as e:
-        print(traceback.format_exc())
-        await interaction.followup.send(f"❌ خطأ: {e}", ephemeral=True)
 
 
 @bot.event
@@ -652,16 +734,31 @@ async def done(interaction: discord.Interaction, role_type: app_commands.Choice[
 
 # ---------------- أمر /profile (النسخة الجديدة بالأزرار) ----------------
 
-@bot.tree.command(name="profile", description="عرض بروفايلك")
-async def profile(interaction: discord.Interaction):
+@bot.tree.command(name="profile", description="عرض بروفايلك أو بروفايل عضو تاني (أدمن بس)")
+@app_commands.describe(member="عرض بروفايل عضو تاني (للأدمن بس، اختياري)")
+async def profile(interaction: discord.Interaction, member: discord.Member = None):
     await interaction.response.defer(ephemeral=True)
-    data = get_member_profile(interaction.user)
 
-    embed = discord.Embed(title=f"👤 {interaction.user.display_name}'s Profile", color=discord.Color.blurple())
-    embed.set_thumbnail(url=interaction.user.display_avatar.url)
+    # تحديد صاحب البروفايل اللي هيتعرض
+    if member is not None:
+        if not is_admin(interaction):
+            await interaction.followup.send("❌ بس الأدمن يقدر يشوف بروفايل عضو تاني.", ephemeral=True)
+            return
+        target_user = member
+        is_admin_view = True
+    else:
+        target_user = interaction.user
+        is_admin_view = False
+
+    data = get_member_profile(target_user)
+
+    embed = discord.Embed(title=f"👤 {target_user.display_name}'s Profile", color=discord.Color.blurple())
+    embed.set_thumbnail(url=target_user.display_avatar.url)
 
     if data:
         embed.add_field(name="💰 Unpaid Balance", value=f"${float(data.get('Unpaid Balance', 0) or 0):.2f}", inline=True)
+        embed.add_field(name="📈 Total Earned", value=f"${float(data.get('Total Earned', 0) or 0):.2f}", inline=True)
+        embed.add_field(name="✅ Paid Out", value=f"${float(data.get('Paid Out', 0) or 0):.2f}", inline=True)
         embed.add_field(name="✅ TL Chapters", value=str(data.get('TL Chapters', 0)), inline=True)
         embed.add_field(name="✅ ED Chapters", value=str(data.get('ED Chapters', 0)), inline=True)
         embed.add_field(name="💳 Payment", value=data.get("Payment") or "— Not set —", inline=True)
@@ -674,6 +771,8 @@ async def profile(interaction: discord.Interaction):
         embed.add_field(name="⚧ Gender", value=gender_value, inline=True)
     else:
         embed.add_field(name="💰 Unpaid Balance", value="$0.00", inline=True)
+        embed.add_field(name="📈 Total Earned", value="$0.00", inline=True)
+        embed.add_field(name="✅ Paid Out", value="$0.00", inline=True)
         embed.add_field(name="✅ TL Chapters", value="0", inline=True)
         embed.add_field(name="✅ ED Chapters", value="0", inline=True)
         embed.add_field(name="💳 Payment", value="— Not set —", inline=True)
@@ -682,7 +781,11 @@ async def profile(interaction: discord.Interaction):
         embed.add_field(name="🎂 Age", value="— Not set —", inline=True)
         embed.add_field(name="⚧ Gender", value="— Not set —", inline=True)
 
-    view = ProfileButtonsView(interaction.user.id)
+    if is_admin_view:
+        view = AdminProfileView(target_user)
+    else:
+        view = ProfileButtonsView(target_user.id)
+
     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
 
