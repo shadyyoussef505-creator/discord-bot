@@ -758,31 +758,49 @@ def get_series_for_user(user):
         if str(row["Person"]).strip() == str(user):
             projects.add(row["Project"])
     return sorted(projects)
-def get_user_chapters_for_project(project_name: str, user, role: str) -> list:
-    normalized_input = normalize_project_name(project_name)
-    user_name = str(user)
+
+
+def save_claim(project_name: str, chapter_number: str, user, role: str):
+    """بتسجل الـ claim في شيت Claims."""
+    client = get_sheet_client()
+    sheet = client.open_by_key(SHEET_ID).worksheet("Claims")
+    sheet.append_row([
+        project_name,
+        str(chapter_number),
+        str(user.id),
+        str(user),
+        role,
+        datetime.now().strftime("%Y-%m-%d %H:%M"),
+    ])
+
+
+def async_save_claim(project_name: str, chapter_number: str, user, role: str):
+    _spawn_background(save_claim, project_name, chapter_number, user, role)
+
+
+def check_user_claim(project_name: str, chapter_number: str, user, role: str) -> bool:
+    """
+    بتتحقق إن العضو ده عنده claim في شيت Claims
+    للمشروع والفصل والدور ده.
+    """
+    normalized_project = normalize_project_name(project_name)
+    chapter_digits = re.sub(r"\D", "", str(chapter_number))
     user_id = str(user.id)
-    chapters = []
 
     client = get_sheet_client()
-    sheet = client.open_by_key(SHEET_ID).worksheet("Log")
+    sheet = client.open_by_key(SHEET_ID).worksheet("Claims")
     records = sheet.get_all_records()
 
     for row in records:
-        row_project = normalize_project_name(str(get_row_value(row, "Project Name", "Project") or ""))
-        row_person = str(get_row_value(row, "Person", "User", "Discord ID") or "").strip()
-        row_role = str(get_row_value(row, "Role") or "").strip().upper()
+        row_project = normalize_project_name(str(row.get("Project", "")))
+        row_chapter = re.sub(r"\D", "", str(row.get("Chapter", "")))
+        row_discord_id = str(row.get("Discord ID", "")).strip()
+        row_role = str(row.get("Role", "")).strip().upper()
 
-        if row_project != normalized_input:
-            continue
-        if row_role != role.upper():
-            continue
-        if row_person not in (user_name, user_id):
-            continue
+        if (row_project == normalized_project and
+                row_chapter == chapter_digits and
+                row_discord_id == user_id and
+                row_role == role.upper()):
+            return True
 
-        chapter_raw = get_row_value(row, "Chapter", "Chapter Number") or ""
-        digits = re.sub(r"\D", "", str(chapter_raw))
-        if digits:
-            chapters.append(digits)
-
-    return chapters
+    return False
