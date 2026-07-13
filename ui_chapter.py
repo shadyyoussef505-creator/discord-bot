@@ -55,7 +55,7 @@ class ChapterView(discord.ui.View):
                 pass
 
 
-class AddChapterModal(discord.ui.Modal, title="تفاصيل الفصل"):
+class AddChapterModal(discord.ui.Modal):
     link_input = discord.ui.TextInput(
         label="الرابط (اختياري)", placeholder="https://drive.google.com/...", required=False
     )
@@ -70,7 +70,7 @@ class AddChapterModal(discord.ui.Modal, title="تفاصيل الفصل"):
     )
 
     def __init__(self, project_name: str, chapter_number: str, mention: discord.Role = None):
-        super().__init__()
+        super().__init__(title="تفاصيل الفصل")
         self.project_name = project_name
         self.chapter_number = chapter_number
         self.mention = mention
@@ -119,13 +119,13 @@ class AddChapterModal(discord.ui.Modal, title="تفاصيل الفصل"):
         await interaction.response.send_message(content=mention_text or None, embed=embed, view=view)
 
 
-class DoneModal(discord.ui.Modal, title="تفاصيل الإنجاز"):
+class DoneModal(discord.ui.Modal):
     link_input = discord.ui.TextInput(
         label="الرابط (اختياري)", placeholder="https://drive.google.com/...", required=False
     )
 
     def __init__(self, role_type: str, project_name: str, chapter_number: str, auto_detected: bool = False):
-        super().__init__()
+        super().__init__(title="تفاصيل الإنجاز")
         self.role_type = role_type
         self.project_name = project_name
         self.chapter_number = chapter_number

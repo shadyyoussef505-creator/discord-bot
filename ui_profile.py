@@ -51,11 +51,11 @@ class GenderSelectView(discord.ui.View):
         )
 
 
-class PaymentAmountModal(discord.ui.Modal, title="تسجيل دفعة"):
+class PaymentAmountModal(discord.ui.Modal):
     amount_input = discord.ui.TextInput(label="المبلغ المدفوع ($)", placeholder="مثال: 5", required=True)
 
     def __init__(self, target_user: discord.User):
-        super().__init__()
+        super().__init__(title="تسجيل دفعة")
         self.target_user = target_user
 
     async def on_submit(self, interaction: discord.Interaction):

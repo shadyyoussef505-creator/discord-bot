@@ -119,12 +119,12 @@ def _safe_user_mention(user):
     return text or None
 
 
-class PricingEditModal(discord.ui.Modal, title="تعديل السعر"):
+class PricingEditModal(discord.ui.Modal):
     tl_price_input = discord.ui.TextInput(label="سعر المترجم TL", placeholder="مثال: 0.5", required=True)
     ed_price_input = discord.ui.TextInput(label="سعر المحرر ED", placeholder="مثال: 0.5", required=True)
 
     def __init__(self, project_name: str, embed: discord.Embed, message: discord.Message):
-        super().__init__()
+        super().__init__(title="تعديل السعر")
         self.project_name = project_name
         self.embed = embed
         self.message = message
@@ -235,10 +235,7 @@ class ProjectView(discord.ui.View):
 
     async def on_error(self, interaction: discord.Interaction, error: Exception, item):
         try:
-            if interaction.response.is_done():
-                await interaction.followup.send("❌ حدث خطأ داخلي في البوت. حاول مرة أخرى.", ephemeral=True)
-            else:
-                await interaction.response.send_message("❌ حدث خطأ داخلي في البوت. حاول مرة أخرى.", ephemeral=True)
+            await safe_component_reply(interaction, "❌ حدث خطأ داخلي في البوت. حاول مرة أخرى.", ephemeral=True)
         except Exception:
             pass
 

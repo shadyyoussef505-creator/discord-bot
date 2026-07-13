@@ -285,9 +285,40 @@ def get_reminder_channel_id(project_name: str):
     return normalize_discord_id(project.get("Reminder Channel ID") or project.get("Reminder Channel") or project.get("Project Channel ID") or project.get("Channel ID"))
 
 
-def get_member_profile(user):
+def get_member_profile_from_sheet(user):
+    user_id = str(getattr(user, "id", user)).strip()
+    if not user_id.isdigit():
+        return None
+
+    client = get_sheet_client()
+    sheet = client.open_by_key(SHEET_ID).worksheet("Members")
+    records = sheet.get_all_records()
+
+    for row in records:
+        row_id = row.get("Discord ID") or row.get("ID") or row.get("User")
+        if normalize_discord_id(row_id) == int(user_id):
+            return row
+    return None
+
+
+def get_member_profile(user, refresh_member: bool = False):
     _ensure_cache_loaded()
-    return CACHE["members"].get(str(user.id))
+    user_key = str(user.id)
+
+    if refresh_member:
+        row = get_member_profile_from_sheet(user)
+        if row is not None:
+            CACHE["members"][user_key] = row
+        return row
+
+    member = CACHE["members"].get(user_key)
+    if member is not None:
+        return member
+
+    row = get_member_profile_from_sheet(user)
+    if row is not None:
+        CACHE["members"][user_key] = row
+    return row
 
 
 def get_overdue_claimed_chapters():

@@ -234,7 +234,7 @@ async def profile(interaction: discord.Interaction, member: discord.Member = Non
         target_user = interaction.user
         is_admin_view = False
 
-    data = get_member_profile(target_user)
+    data = get_member_profile(target_user, refresh_member=True)
 
     embed = discord.Embed(title=f"👤 {target_user.display_name}'s Profile", color=discord.Color.blurple())
     embed.set_thumbnail(url=target_user.display_avatar.url)
