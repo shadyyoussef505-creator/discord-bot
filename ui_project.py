@@ -3,6 +3,15 @@ from config import LOGS_CHANNEL_ID
 from sheets import async_upsert_project_pricing, fix_url
 
 
+def _is_undefined_text(value) -> bool:
+    if value is None:
+        return True
+    text = str(value).strip()
+    if not text:
+        return True
+    return text.lower() in {"غير محدد", "undefined", "none", "n/a", "-", "— not claimed —"}
+
+
 async def safe_send_logs_channel(interaction: discord.Interaction, embed: discord.Embed):
     try:
         if LOGS_CHANNEL_ID == 0 or not interaction.guild:
@@ -13,6 +22,16 @@ async def safe_send_logs_channel(interaction: discord.Interaction, embed: discor
             return
 
         await logs_channel.send(embed=embed)
+    except Exception:
+        pass
+
+
+async def safe_component_reply(interaction: discord.Interaction, content: str, **kwargs):
+    try:
+        if not interaction.response.is_done():
+            await interaction.response.send_message(content, **kwargs)
+        else:
+            await interaction.followup.send(content, **kwargs)
     except Exception:
         pass
 
@@ -87,6 +106,19 @@ class LinkEditModal(discord.ui.Modal):
             pass
 
 
+def _safe_user_mention(user):
+    if user is None:
+        return None
+    if hasattr(user, "mention"):
+        return user.mention
+    text = str(user).strip()
+    if text.isdigit():
+        return f"<@{text}>"
+    if _is_undefined_text(text):
+        return "غير محدد"
+    return text or None
+
+
 class PricingEditModal(discord.ui.Modal, title="تعديل السعر"):
     tl_price_input = discord.ui.TextInput(label="سعر المترجم TL", placeholder="مثال: 0.5", required=True)
     ed_price_input = discord.ui.TextInput(label="سعر المحرر ED", placeholder="مثال: 0.5", required=True)
@@ -151,31 +183,36 @@ class UserSelectView(discord.ui.View):
     async def select_user(self, interaction: discord.Interaction, select: discord.ui.UserSelect):
         try:
             chosen_user = select.values[0]
+            mention_text = _safe_user_mention(chosen_user) or "غير محدد"
             for i, field in enumerate(self.embed.fields):
                 if field.name == self.field_name:
-                    self.embed.set_field_at(i, name=self.field_name, value=chosen_user.mention, inline=field.inline)
+                    self.embed.set_field_at(i, name=self.field_name, value=mention_text, inline=field.inline)
                     break
             await self.message.edit(embed=self.embed)
-            await interaction.response.send_message(
-                f"تم تحديث {self.field_name} إلى {chosen_user.mention} ✅", ephemeral=True
+            await safe_component_reply(
+                interaction,
+                f"تم تحديث {self.field_name} إلى {mention_text} ✅",
+                ephemeral=True
             )
 
             try:
                 embed = discord.Embed(
                     title="✏️ تم تعديل الفريق في مشروع",
-                    description=f"{self.field_name} تم تحديثه إلى {chosen_user.mention}.",
+                    description=f"{self.field_name} تم تحديثه إلى {mention_text}.",
                     color=discord.Color.green(),
                     timestamp=discord.utils.utcnow()
                 )
                 embed.add_field(name="الدور", value=self.field_name, inline=True)
-                embed.add_field(name="العضو", value=chosen_user.mention, inline=True)
+                embed.add_field(name="العضو", value=mention_text, inline=True)
                 embed.add_field(name="المشروع", value=self.embed.title.replace("📖", "").strip(), inline=False)
                 await safe_send_logs_channel(interaction, embed)
             except Exception:
                 pass
         except Exception:
-            await interaction.response.send_message(
-                "❌ حدث خطأ أثناء تحديث العضو. حاول مرة أخرى.", ephemeral=True
+            await safe_component_reply(
+                interaction,
+                "❌ حدث خطأ أثناء تحديث العضو. حاول مرة أخرى.",
+                ephemeral=True
             )
 
 
@@ -196,29 +233,38 @@ class ProjectView(discord.ui.View):
     def rebuild(self):
         return ProjectView(self.embed, self.links)
 
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item):
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send("❌ حدث خطأ داخلي في البوت. حاول مرة أخرى.", ephemeral=True)
+            else:
+                await interaction.response.send_message("❌ حدث خطأ داخلي في البوت. حاول مرة أخرى.", ephemeral=True)
+        except Exception:
+            pass
+
     @discord.ui.button(label="Change TL", style=discord.ButtonStyle.primary, row=0)
     async def change_tl(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             view = UserSelectView("TL", self.embed, interaction.message)
-            await interaction.response.send_message("اختار الـ TL الجديد:", view=view, ephemeral=True)
+            await safe_component_reply(interaction, "اختار الـ TL الجديد:", view=view, ephemeral=True)
         except Exception:
-            await interaction.response.send_message("❌ فشل تغيير TL، حاول مرة أخرى.", ephemeral=True)
+            await safe_component_reply(interaction, "❌ فشل تغيير TL، حاول مرة أخرى.", ephemeral=True)
 
     @discord.ui.button(label="Change ED", style=discord.ButtonStyle.primary, row=0)
     async def change_ed(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             view = UserSelectView("ED", self.embed, interaction.message)
-            await interaction.response.send_message("اختار الـ ED الجديد:", view=view, ephemeral=True)
+            await safe_component_reply(interaction, "اختار الـ ED الجديد:", view=view, ephemeral=True)
         except Exception:
-            await interaction.response.send_message("❌ فشل تغيير ED، حاول مرة أخرى.", ephemeral=True)
+            await safe_component_reply(interaction, "❌ فشل تغيير ED، حاول مرة أخرى.", ephemeral=True)
 
     @discord.ui.button(label="Add PR", style=discord.ButtonStyle.success, row=0)
     async def add_pr(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
             view = UserSelectView("PR", self.embed, interaction.message)
-            await interaction.response.send_message("اختار الـ PR الجديد:", view=view, ephemeral=True)
+            await safe_component_reply(interaction, "اختار الـ PR الجديد:", view=view, ephemeral=True)
         except Exception:
-            await interaction.response.send_message("❌ فشل إضافة PR، حاول مرة أخرى.", ephemeral=True)
+            await safe_component_reply(interaction, "❌ فشل إضافة PR، حاول مرة أخرى.", ephemeral=True)
 
     @discord.ui.button(label="Edit Pricing", style=discord.ButtonStyle.secondary, row=1)
     async def edit_pricing(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -227,7 +273,7 @@ class ProjectView(discord.ui.View):
             modal = PricingEditModal(project_name, self.embed, interaction.message)
             await interaction.response.send_modal(modal)
         except Exception:
-            await interaction.response.send_message("❌ فشل فتح نافذة تعديل السعر، حاول مرة أخرى.", ephemeral=True)
+            await safe_component_reply(interaction, "❌ فشل فتح نافذة تعديل السعر، حاول مرة أخرى.", ephemeral=True)
 
     @discord.ui.button(label="Edit Status", style=discord.ButtonStyle.secondary, row=1)
     async def edit_status(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -235,21 +281,33 @@ class ProjectView(discord.ui.View):
             modal = TextEditModal("الحالة", self.embed, interaction.message, placeholder="مثال: 🟢 Active")
             await interaction.response.send_modal(modal)
         except Exception:
-            await interaction.response.send_message("❌ فشل فتح نافذة تعديل الحالة، حاول مرة أخرى.", ephemeral=True)
+            await safe_component_reply(interaction, "❌ فشل فتح نافذة تعديل الحالة، حاول مرة أخرى.", ephemeral=True)
 
     @discord.ui.button(label="Edit Details", style=discord.ButtonStyle.secondary, row=1)
     async def edit_details(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = TextEditModal("التفاصيل", self.embed, interaction.message, placeholder="Latest: ... | Release: ...")
-        await interaction.response.send_modal(modal)
+        try:
+            modal = TextEditModal("التفاصيل", self.embed, interaction.message, placeholder="Latest: ... | Release: ...")
+            await interaction.response.send_modal(modal)
+        except Exception:
+            await safe_component_reply(interaction, "❌ فشل فتح نافذة تعديل التفاصيل، حاول مرة أخرى.", ephemeral=True)
 
     @discord.ui.button(label="✏️ Edit Folder", style=discord.ButtonStyle.gray, row=3)
     async def edit_folder(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(LinkEditModal("Folder", self))
+        try:
+            await interaction.response.send_modal(LinkEditModal("Folder", self))
+        except Exception:
+            await safe_component_reply(interaction, "❌ فشل فتح نافذة تعديل المرجع Folder، حاول مرة أخرى.", ephemeral=True)
 
     @discord.ui.button(label="✏️ Edit Sort", style=discord.ButtonStyle.gray, row=3)
     async def edit_sort(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(LinkEditModal("Sort", self))
+        try:
+            await interaction.response.send_modal(LinkEditModal("Sort", self))
+        except Exception:
+            await safe_component_reply(interaction, "❌ فشل فتح نافذة تعديل المرجع Sort، حاول مرة أخرى.", ephemeral=True)
 
     @discord.ui.button(label="✏️ Edit Raw", style=discord.ButtonStyle.gray, row=3)
     async def edit_raw(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(LinkEditModal("Raw", self))
+        try:
+            await interaction.response.send_modal(LinkEditModal("Raw", self))
+        except Exception:
+            await safe_component_reply(interaction, "❌ فشل فتح نافذة تعديل المرجع Raw، حاول مرة أخرى.", ephemeral=True)

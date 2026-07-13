@@ -36,11 +36,23 @@ class ChapterView(discord.ui.View):
 
     @discord.ui.button(label="Claim TL", style=discord.ButtonStyle.primary)
     async def claim_tl(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.claim(interaction, "Translator")
+        try:
+            await self.claim(interaction, "Translator")
+        except Exception:
+            try:
+                await interaction.response.send_message("❌ حدث خطأ أثناء محاولة المطالبة بـ TL. حاول مرة أخرى.", ephemeral=True)
+            except Exception:
+                pass
 
     @discord.ui.button(label="Claim ED", style=discord.ButtonStyle.success)
     async def claim_ed(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.claim(interaction, "Editor")
+        try:
+            await self.claim(interaction, "Editor")
+        except Exception:
+            try:
+                await interaction.response.send_message("❌ حدث خطأ أثناء محاولة المطالبة بـ ED. حاول مرة أخرى.", ephemeral=True)
+            except Exception:
+                pass
 
 
 class AddChapterModal(discord.ui.Modal, title="تفاصيل الفصل"):
