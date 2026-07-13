@@ -1,7 +1,7 @@
 import discord
 from datetime import datetime
 from config import ADMIN_ROLE_ID, EDITOR_ROLE_ID, LOGS_CHANNEL_ID
-from sheets import async_log_chapter_done, fix_url, get_project_team_discord_ids
+from sheets import async_log_chapter_done, fix_url, get_project_team_discord_ids, get_project_card_location
 
 
 def _is_undefined_member_value(value) -> bool:
@@ -117,6 +117,35 @@ class AddChapterModal(discord.ui.Modal):
 
         view = ChapterView(embed)
         await interaction.response.send_message(content=mention_text or None, embed=embed, view=view)
+
+        try:
+            await self.update_project_card_latest(interaction)
+        except Exception:
+            pass
+
+    async def update_project_card_latest(self, interaction: discord.Interaction):
+        channel_id, message_id = get_project_card_location(self.project_name)
+        if not channel_id or not message_id:
+            return
+
+        channel = interaction.client.get_channel(int(channel_id))
+        if channel is None:
+            channel = await interaction.client.fetch_channel(int(channel_id))
+        if channel is None:
+            return
+
+        card_message = await channel.fetch_message(int(message_id))
+        card_embed = card_message.embeds[0]
+
+        for i, field in enumerate(card_embed.fields):
+            if field.name == "التفاصيل":
+                old_value = field.value
+                release_part = old_value.split("|")[-1].strip() if "|" in old_value else "Release: Not scheduled"
+                new_value = f"Latest: Chapter {self.chapter_number} | {release_part}"
+                card_embed.set_field_at(i, name="التفاصيل", value=new_value, inline=field.inline)
+                break
+
+        await card_message.edit(embed=card_embed)
 
 
 class DoneModal(discord.ui.Modal):
