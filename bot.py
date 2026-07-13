@@ -15,6 +15,9 @@ from sheets import (
     refresh_cache,
     get_overdue_claimed_chapters,
     get_reminder_channel_id,
+    get_all_project_names,
+    get_next_chapter_number,
+    async_save_project_card_location,
 )
 from ui_project import ProjectView
 from ui_chapter import AddChapterModal, DoneModal, ChapterView
@@ -32,6 +35,16 @@ def is_admin(interaction: discord.Interaction) -> bool:
     if admin_role is None:
         return False
     return admin_role in interaction.user.roles
+
+
+async def project_name_autocomplete(interaction: discord.Interaction, current: str):
+    try:
+        names = get_all_project_names()
+    except Exception:
+        names = []
+    current_lower = (current or "").lower()
+    matches = [name for name in names if current_lower in name.lower()]
+    return [app_commands.Choice(name=name, value=name) for name in matches[:25]]
 
 
 @bot.event
@@ -94,7 +107,12 @@ async def project(interaction: discord.Interaction, name: str, tl_price: float, 
         "Raw": fix_url(drive_raw) or "https://drive.google.com"
     }
     view = ProjectView(embed, links)
-    await interaction.followup.send(embed=embed, view=view)
+    sent_message = await interaction.followup.send(embed=embed, view=view)
+
+    try:
+        async_save_project_card_location(name, interaction.channel.id, sent_message.id)
+    except Exception:
+        pass
 
 
 @bot.tree.command(name="add_chapter", description="نشر فصل جديد")
@@ -103,6 +121,7 @@ async def project(interaction: discord.Interaction, name: str, tl_price: float, 
     chapter_number="رقم الفصل",
     mention="الرتبة اللي هتتعمله منشن (اختياري)"
 )
+@app_commands.autocomplete(project_name=project_name_autocomplete)
 async def add_chapter(interaction: discord.Interaction, chapter_number: str, project_name: str = None, mention: discord.Role = None):
     auto_detected = False
     if project_name is None or str(project_name).strip() == "":
@@ -115,6 +134,22 @@ async def add_chapter(interaction: discord.Interaction, chapter_number: str, pro
         else:
             await interaction.response.send_message(
                 "❌ لم أتمكن من تحديد المشروع من اسم القناة الحالية. الرجاء إعادة الأمر مع اسم المشروع يدوياً.",
+                ephemeral=True
+            )
+            return
+
+    try:
+        expected_chapter = get_next_chapter_number(project_name)
+    except Exception:
+        expected_chapter = None
+
+    if expected_chapter is not None:
+        digits = "".join(ch for ch in str(chapter_number) if ch.isdigit())
+        provided_chapter = int(digits) if digits else None
+        if provided_chapter != expected_chapter:
+            await interaction.response.send_message(
+                f"❌ رقم الفصل غلط. الفصل التالي المتوقع لمشروع '{project_name}' هو **{expected_chapter}**. "
+                f"الرجاء إعادة الأمر برقم الفصل الصحيح.",
                 ephemeral=True
             )
             return
@@ -139,6 +174,7 @@ async def add_chapter(interaction: discord.Interaction, chapter_number: str, pro
     app_commands.Choice(name="TL - مترجم", value="TL"),
     app_commands.Choice(name="ED - محرر", value="ED"),
 ])
+@app_commands.autocomplete(project_name=project_name_autocomplete)
 async def done(interaction: discord.Interaction, role_type: app_commands.Choice[str], project_name: str = None, chapter_number: str = None):
     auto_detected = False
     if project_name is None or str(project_name).strip() == "":
