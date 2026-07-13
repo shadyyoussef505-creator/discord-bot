@@ -14,18 +14,8 @@ intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-import logging
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s"
-)
-
-logger = logging.getLogger("discord_bot")
-
 SHEET_ID = "1QG4besel9w7nFkwceD21SpwCpFRbXyQHB6GCRyCstDQ"
-_sheet_client = None
-_spreadsheet = None
+
 # ---------------- Role IDs (لازم تستبدلهم بالـ IDs الحقيقية بتاعت السيرفر عندك) ----------------
 EDITOR_ROLE_ID = 123456789012345678
 ADMIN_ROLE_ID = 123456789012345678
