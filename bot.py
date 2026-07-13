@@ -17,7 +17,7 @@ from sheets import (
     get_reminder_channel_id,
 )
 from ui_project import ProjectView
-from ui_chapter import AddChapterModal, DoneModal
+from ui_chapter import AddChapterModal, DoneModal, ChapterView
 from ui_profile import AdminProfileView, ProfileButtonsView
 
 intents = discord.Intents.default()
