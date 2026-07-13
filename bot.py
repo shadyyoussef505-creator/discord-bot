@@ -347,34 +347,67 @@ async def rank(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=False)
 
     try:
-        top_members = get_top_members(limit=10)
+        all_members, top_members = get_top_members(limit=10)
     except Exception as e:
         await interaction.followup.send(f"❌ حصل خطأ أثناء جلب البيانات: {e}")
         return
 
-    if not top_members:
+    if not all_members:
         await interaction.followup.send("📭 مفيش أعضاء عندهم رصيد دلوقتي.")
         return
 
-    medals = ["🥇", "🥈", "🥉"]
-    embed = discord.Embed(
-        title="🏆 Leaderboard — Top 10",
-        description="ترتيب الأعضاء بالرصيد الغير مدفوع للشهر الحالي",
-        color=discord.Color.gold(),
-        timestamp=datetime.utcnow()
-    )
+    total_earners = len(all_members)
+    medals = {0: "🥇", 1: "🥈", 2: "🥉"}
+    number_emojis = {3: "4️⃣", 4: "5️⃣", 5: "6️⃣", 6: "7️⃣", 7: "8️⃣", 8: "9️⃣", 9: "🔟"}
 
+    lines = []
     for i, member in enumerate(top_members):
-        rank_emoji = medals[i] if i < 3 else f"**#{i+1}**"
+        rank_display = medals.get(i) or number_emojis.get(i, f"#{i+1}")
         name = member.get("Display Name") or member.get("Name") or "Unknown"
         unpaid = float(member.get("Unpaid Balance", 0) or 0)
-        tl = int(member.get("TL Chapters", 0) or 0)
-        ed = int(member.get("ED Chapters", 0) or 0)
-        embed.add_field(
-            name=f"{rank_emoji} {name}",
-            value=f"💰 ${unpaid:.2f} | TL: {tl} | ED: {ed}",
-            inline=False
+
+        if i == 0:
+            suffix = ""
+        else:
+            prev_unpaid = float(top_members[i-1].get("Unpaid Balance", 0) or 0)
+            diff = prev_unpaid - unpaid
+            suffix = f" *(needs ${diff:.2f} to reach #{i})*"
+
+        lines.append(f"{rank_display} @{name}{suffix}")
+
+    leaderboard_text = "\n".join(lines)
+
+    # موقع اليوزر اللي عمل الأمر
+    user_id = str(interaction.user.id)
+    user_position = None
+    user_unpaid = 0.0
+    for idx, m in enumerate(all_members):
+        if str(m.get("Discord ID", "")).strip() == user_id:
+            user_position = idx + 1
+            user_unpaid = float(m.get("Unpaid Balance", 0) or 0)
+            break
+
+    if user_position and user_position > 10:
+        prev_member = all_members[user_position - 2]
+        prev_unpaid = float(prev_member.get("Unpaid Balance", 0) or 0)
+        diff_to_next = prev_unpaid - user_unpaid
+        your_position_text = (
+            f"You are **#{user_position}** out of {total_earners}.\n"
+            f"Needs **${diff_to_next:.2f}** to reach **#{user_position - 1}**."
         )
+    elif user_position and user_position <= 10:
+        your_position_text = f"You are **#{user_position}** out of {total_earners}. You're in the Top 10! 🎉"
+    else:
+        your_position_text = "مش لاقيك في القائمة. اشتغل أكتر! 💪"
+
+    embed = discord.Embed(
+        title="🏆 Leaderboard — Top 10",
+        description=leaderboard_text,
+        color=discord.Color.gold(),
+    )
+    embed.add_field(name="📍 Your Position", value=your_position_text, inline=False)
+    embed.set_footer(text=f"ASTA Team • {total_earners} total earner(s) in this server")
+    embed.timestamp = datetime.utcnow()
 
     await interaction.followup.send(embed=embed)
 
