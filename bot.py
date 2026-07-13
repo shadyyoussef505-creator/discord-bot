@@ -18,6 +18,7 @@ from sheets import (
     get_all_project_names,
     get_next_chapter_number,
     async_save_project_card_location,
+    ensure_join_date,
 )
 from ui_project import ProjectView
 from ui_chapter import AddChapterModal, DoneModal, ChapterView
@@ -284,34 +285,53 @@ async def profile(interaction: discord.Interaction, member: discord.Member = Non
 
     data = get_member_profile(target_user, refresh_member=True)
 
+    try:
+        ensure_join_date(target_user)
+        if data:
+            data.setdefault("Join Date", datetime.now().strftime("%Y-%m-%d"))
+    except Exception:
+        pass
+
     embed = discord.Embed(title=f"👤 {target_user.display_name}'s Profile", color=discord.Color.blurple())
     embed.set_thumbnail(url=target_user.display_avatar.url)
 
-    if data:
-        embed.add_field(name="💰 Unpaid Balance", value=f"${float(data.get('Unpaid Balance', 0) or 0):.2f}", inline=True)
-        embed.add_field(name="📈 Total Earned", value=f"${float(data.get('Total Earned', 0) or 0):.2f}", inline=True)
-        embed.add_field(name="✅ Paid Out", value=f"${float(data.get('Paid Out', 0) or 0):.2f}", inline=True)
-        embed.add_field(name="✅ TL Chapters", value=str(data.get('TL Chapters', 0)), inline=True)
-        embed.add_field(name="✅ ED Chapters", value=str(data.get('ED Chapters', 0)), inline=True)
-        embed.add_field(name="💳 Payment", value=data.get("Payment") or "— Not set —", inline=True)
-        embed.add_field(name="📧 Email", value=data.get("Email") or "— Not set —", inline=True)
-        embed.add_field(name="🌍 Country", value=data.get("Country") or "— Not set —", inline=True)
-        embed.add_field(name="🎂 Age", value=data.get("Age") or "— Not set —", inline=True)
-        gender_value = data.get("Gender") or "— Not set —"
-        if data.get("Gender"):
-            gender_value += " 🔒"
-        embed.add_field(name="⚧ Gender", value=gender_value, inline=True)
-    else:
-        embed.add_field(name="💰 Unpaid Balance", value="$0.00", inline=True)
-        embed.add_field(name="📈 Total Earned", value="$0.00", inline=True)
-        embed.add_field(name="✅ Paid Out", value="$0.00", inline=True)
-        embed.add_field(name="✅ TL Chapters", value="0", inline=True)
-        embed.add_field(name="✅ ED Chapters", value="0", inline=True)
-        embed.add_field(name="💳 Payment", value="— Not set —", inline=True)
-        embed.add_field(name="📧 Email", value="— Not set —", inline=True)
-        embed.add_field(name="🌍 Country", value="— Not set —", inline=True)
-        embed.add_field(name="🎂 Age", value="— Not set —", inline=True)
-        embed.add_field(name="⚧ Gender", value="— Not set —", inline=True)
+    d = data or {}
+
+    embed.add_field(name="💰 Unpaid Balance", value=f"${float(d.get('Unpaid Balance', 0) or 0):.2f}", inline=True)
+    embed.add_field(name="📈 Total Earned", value=f"${float(d.get('Total Earned', 0) or 0):.2f}", inline=True)
+    embed.add_field(name="✅ Paid Out", value=f"${float(d.get('Paid Out', 0) or 0):.2f}", inline=True)
+
+    embed.add_field(name="💳 Payment", value=d.get("Payment") or "— Not set —", inline=True)
+    embed.add_field(name="📧 Email", value=d.get("Email") or "— Not set —", inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+    display_name = d.get("Display Name") or target_user.display_name
+    embed.add_field(name="👤 Name", value=display_name, inline=True)
+    embed.add_field(name="🌍 Country", value=d.get("Country") or "— Not set —", inline=True)
+    embed.add_field(name="🎂 Age", value=d.get("Age") or "— Not set —", inline=True)
+
+    gender_value = d.get("Gender") or "— Not set —"
+    if d.get("Gender"):
+        gender_value += " 🔒"
+    staff_role_value = d.get("Staff Role") or "— Not set —"
+    if d.get("Staff Role"):
+        staff_role_value += " 🔒"
+    embed.add_field(name="⚧ Gender", value=gender_value, inline=True)
+    embed.add_field(name="🏷️ Staff Role", value=staff_role_value, inline=True)
+    embed.add_field(name="📅 Join Date", value=d.get("Join Date") or "— Not set —", inline=True)
+
+    embed.add_field(name="✅ TL Chapters", value=str(d.get('TL Chapters', 0) or 0), inline=True)
+    embed.add_field(name="✅ ED Chapters", value=str(d.get('ED Chapters', 0) or 0), inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+    if d.get("Other Scans"):
+        embed.add_field(name="🔗 Other Scans", value=d.get("Other Scans"), inline=False)
+
+    embed.add_field(
+        name="🔒 Identity",
+        value="الجندر والـ Staff Role مقفولين — تواصل مع أدمن لتغييرهم.",
+        inline=False
+    )
 
     if is_admin_view:
         view = AdminProfileView(target_user)
