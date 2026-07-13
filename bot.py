@@ -19,6 +19,7 @@ from sheets import (
     get_next_chapter_number,
     async_save_project_card_location,
     ensure_join_date,
+    get_top_members,
 )
 from ui_project import ProjectView
 from ui_chapter import AddChapterModal, DoneModal, ChapterView
@@ -339,6 +340,43 @@ async def profile(interaction: discord.Interaction, member: discord.Member = Non
         view = ProfileButtonsView(target_user.id)
 
     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
+@bot.tree.command(name="rank", description="شوف توب 10 أعضاء بالرصيد غير المدفوع")
+async def rank(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=False)
+
+    try:
+        top_members = get_top_members(limit=10)
+    except Exception as e:
+        await interaction.followup.send(f"❌ حصل خطأ أثناء جلب البيانات: {e}")
+        return
+
+    if not top_members:
+        await interaction.followup.send("📭 مفيش أعضاء عندهم رصيد دلوقتي.")
+        return
+
+    medals = ["🥇", "🥈", "🥉"]
+    embed = discord.Embed(
+        title="🏆 Leaderboard — Top 10",
+        description="ترتيب الأعضاء بالرصيد الغير مدفوع للشهر الحالي",
+        color=discord.Color.gold(),
+        timestamp=datetime.utcnow()
+    )
+
+    for i, member in enumerate(top_members):
+        rank_emoji = medals[i] if i < 3 else f"**#{i+1}**"
+        name = member.get("Display Name") or member.get("Name") or "Unknown"
+        unpaid = float(member.get("Unpaid Balance", 0) or 0)
+        tl = int(member.get("TL Chapters", 0) or 0)
+        ed = int(member.get("ED Chapters", 0) or 0)
+        embed.add_field(
+            name=f"{rank_emoji} {name}",
+            value=f"💰 ${unpaid:.2f} | TL: {tl} | ED: {ed}",
+            inline=False
+        )
+
+    await interaction.followup.send(embed=embed)
 
 
 TOKEN = os.getenv("DISCORD_TOKEN")
