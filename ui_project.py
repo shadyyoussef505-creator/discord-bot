@@ -73,11 +73,20 @@ class TextEditModal(discord.ui.Modal):
             pass
 
 
+def get_links_from_message(message: discord.Message) -> dict:
+    """بتقرا روابط Folder/Sort/Raw من زراير الرابط الموجودة فعليًا في الرسالة."""
+    links = {}
+    for row in message.components:
+        for item in row.children:
+            if isinstance(item, discord.Button) and item.url:
+                links[item.label] = item.url
+    return links
+
+
 class LinkEditModal(discord.ui.Modal):
-    def __init__(self, link_name: str, project_view):
+    def __init__(self, link_name: str):
         super().__init__(title=f"تعديل رابط {link_name}")
         self.link_name = link_name
-        self.project_view = project_view
         self.link_input = discord.ui.TextInput(
             label=f"الرابط الجديد لـ {link_name}",
             placeholder="https://drive.google.com/...",
@@ -87,8 +96,12 @@ class LinkEditModal(discord.ui.Modal):
 
     async def on_submit(self, interaction: discord.Interaction):
         new_link = fix_url(self.link_input.value) or "https://drive.google.com"
-        self.project_view.links[self.link_name] = new_link
-        new_view = self.project_view.rebuild()
+
+        live_embed = interaction.message.embeds[0]
+        current_links = get_links_from_message(interaction.message)
+        current_links[self.link_name] = new_link
+
+        new_view = ProjectView(live_embed, current_links)
         await interaction.message.edit(view=new_view)
         await interaction.response.send_message(f"تم تحديث رابط {self.link_name} ✅", ephemeral=True)
 
@@ -100,7 +113,7 @@ class LinkEditModal(discord.ui.Modal):
                 timestamp=discord.utils.utcnow()
             )
             embed.add_field(name="الرابط", value=new_link, inline=False)
-            embed.add_field(name="المشروع", value=self.project_view.embed.title.replace("📖", "").strip(), inline=False)
+            embed.add_field(name="المشروع", value=live_embed.title.replace("📖", "").strip(), inline=False)
             await safe_send_logs_channel(interaction, embed)
         except Exception:
             pass
@@ -242,7 +255,8 @@ class ProjectView(discord.ui.View):
     @discord.ui.button(label="Change TL", style=discord.ButtonStyle.primary, row=0, custom_id="project_change_tl")
     async def change_tl(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            view = UserSelectView("TL", self.embed, interaction.message)
+            live_embed = interaction.message.embeds[0]
+            view = UserSelectView("TL", live_embed, interaction.message)
             await safe_component_reply(interaction, "اختار الـ TL الجديد:", view=view, ephemeral=True)
         except Exception:
             await safe_component_reply(interaction, "❌ فشل تغيير TL، حاول مرة أخرى.", ephemeral=True)
@@ -250,7 +264,8 @@ class ProjectView(discord.ui.View):
     @discord.ui.button(label="Change ED", style=discord.ButtonStyle.primary, row=0, custom_id="project_change_ed")
     async def change_ed(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            view = UserSelectView("ED", self.embed, interaction.message)
+            live_embed = interaction.message.embeds[0]
+            view = UserSelectView("ED", live_embed, interaction.message)
             await safe_component_reply(interaction, "اختار الـ ED الجديد:", view=view, ephemeral=True)
         except Exception:
             await safe_component_reply(interaction, "❌ فشل تغيير ED، حاول مرة أخرى.", ephemeral=True)
@@ -258,7 +273,8 @@ class ProjectView(discord.ui.View):
     @discord.ui.button(label="Add PR", style=discord.ButtonStyle.success, row=0, custom_id="project_add_pr")
     async def add_pr(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            view = UserSelectView("PR", self.embed, interaction.message)
+            live_embed = interaction.message.embeds[0]
+            view = UserSelectView("PR", live_embed, interaction.message)
             await safe_component_reply(interaction, "اختار الـ PR الجديد:", view=view, ephemeral=True)
         except Exception:
             await safe_component_reply(interaction, "❌ فشل إضافة PR، حاول مرة أخرى.", ephemeral=True)
@@ -278,7 +294,8 @@ class ProjectView(discord.ui.View):
     @discord.ui.button(label="Edit Status", style=discord.ButtonStyle.secondary, row=1, custom_id="project_edit_status")
     async def edit_status(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            modal = TextEditModal("الحالة", self.embed, interaction.message, placeholder="مثال: 🟢 Active")
+            live_embed = interaction.message.embeds[0]
+            modal = TextEditModal("الحالة", live_embed, interaction.message, placeholder="مثال: 🟢 Active")
             await interaction.response.send_modal(modal)
         except Exception:
             await safe_component_reply(interaction, "❌ فشل فتح نافذة تعديل الحالة، حاول مرة أخرى.", ephemeral=True)
@@ -286,7 +303,8 @@ class ProjectView(discord.ui.View):
     @discord.ui.button(label="Edit Details", style=discord.ButtonStyle.secondary, row=1, custom_id="project_edit_details")
     async def edit_details(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            modal = TextEditModal("التفاصيل", self.embed, interaction.message, placeholder="Latest: ... | Release: ...")
+            live_embed = interaction.message.embeds[0]
+            modal = TextEditModal("التفاصيل", live_embed, interaction.message, placeholder="Latest: ... | Release: ...")
             await interaction.response.send_modal(modal)
         except Exception:
             await safe_component_reply(interaction, "❌ فشل فتح نافذة تعديل التفاصيل، حاول مرة أخرى.", ephemeral=True)
@@ -294,20 +312,20 @@ class ProjectView(discord.ui.View):
     @discord.ui.button(label="✏️ Edit Folder", style=discord.ButtonStyle.gray, row=3, custom_id="project_edit_folder")
     async def edit_folder(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            await interaction.response.send_modal(LinkEditModal("Folder", self))
+            await interaction.response.send_modal(LinkEditModal("Folder"))
         except Exception:
             await safe_component_reply(interaction, "❌ فشل فتح نافذة تعديل المرجع Folder، حاول مرة أخرى.", ephemeral=True)
 
     @discord.ui.button(label="✏️ Edit Sort", style=discord.ButtonStyle.gray, row=3, custom_id="project_edit_sort")
     async def edit_sort(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            await interaction.response.send_modal(LinkEditModal("Sort", self))
+            await interaction.response.send_modal(LinkEditModal("Sort"))
         except Exception:
             await safe_component_reply(interaction, "❌ فشل فتح نافذة تعديل المرجع Sort، حاول مرة أخرى.", ephemeral=True)
 
     @discord.ui.button(label="✏️ Edit Raw", style=discord.ButtonStyle.gray, row=3, custom_id="project_edit_raw")
     async def edit_raw(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            await interaction.response.send_modal(LinkEditModal("Raw", self))
+            await interaction.response.send_modal(LinkEditModal("Raw"))
         except Exception:
             await safe_component_reply(interaction, "❌ فشل فتح نافذة تعديل المرجع Raw، حاول مرة أخرى.", ephemeral=True)
