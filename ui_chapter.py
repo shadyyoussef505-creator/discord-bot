@@ -1,3 +1,4 @@
+import re
 import discord
 from datetime import datetime
 from config import ADMIN_ROLE_ID, EDITOR_ROLE_ID, LOGS_CHANNEL_ID
@@ -165,6 +166,30 @@ class DoneModal(discord.ui.Modal):
         link_value = fix_url(self.link_input.value) if self.link_input.value else None
         link_display = link_value if link_value else "— No link provided —"
 
+        # ✅ Validation
+        from sheets import get_user_chapters_for_project
+        user_chapters = get_user_chapters_for_project(self.project_name, interaction.user, self.role_type)
+
+        if not user_chapters:
+            await interaction.followup.send(
+                f"❌ مش لاقيك عندك أي فصول مسجّلة كـ **{self.role_type}** في مشروع **{self.project_name}**.",
+                ephemeral=True
+            )
+            return
+
+    chapter_digits = re.sub(r"\D", "", str(self.chapter_number))
+    if chapter_digits not in user_chapters:
+        chapters_list = ", ".join(sorted(user_chapters, key=lambda x: int(x)))
+        await interaction.followup.send(
+            f"❌ الفصل **{self.chapter_number}** مش بتاعك.\n"
+            f"الفصول المسجّلة عندك في **{self.project_name}**: **{chapters_list}**",
+            ephemeral=True
+        )
+        return
+
+    try:
+        amount = async_log_chapter_done(self.project_name, self.chapter_number, interaction.user, self.role_type)
+        
         try:
             amount = async_log_chapter_done(self.project_name, self.chapter_number, interaction.user, self.role_type)
         except Exception as e:
